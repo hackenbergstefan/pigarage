@@ -12,9 +12,9 @@ class MotionDetector(DetectionThread):
     def __init__(
         self,
         cam: Picamera2,
-        cam_setting="lowres",
-        history: int = 50,
-        variance_threshold: int = 80,
+        cam_setting="lores",
+        history: int = 200,
+        variance_threshold: int = 150,
         resize: int = 480,
         *,
         debug: bool = False,
@@ -36,6 +36,8 @@ class MotionDetector(DetectionThread):
         Calculate y-coordinate of center of mass of the convex hull of all contours in the image.
         """
         # Find contours in the image
+        img = cv2.medianBlur(img, 5)
+
         contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not contours:
             return None
@@ -45,7 +47,8 @@ class MotionDetector(DetectionThread):
 
         # Calculate the center of mass of the convex hull
         moments = cv2.moments(hull)
-        if moments["m00"] == 0:
+        # Skip if area is smaller than 10% of the image
+        if moments["m00"] < 0.1 * img.shape[0] * img.shape[1]:
             return None
         center_x = int(moments["m10"] / moments["m00"])
         center_y = int(moments["m01"] / moments["m00"])
@@ -81,7 +84,7 @@ class MotionDetector(DetectionThread):
         # Detect motion direction based on the history of center of mass positions
         if len(self.history) == self.history_length:
             ys = sorted(range(self.history_length), key=lambda i: self.history[i])
-            logging.getLogger(__name__).debug(f"ys: {ys}")
+            # logging.getLogger(__name__).debug(f"ys: {ys}")
             self.history.clear()
             if ys == list(range(self.history_length)) and ys[0] != ys[-1]:
                 direction = "arriving"

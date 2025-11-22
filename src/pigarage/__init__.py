@@ -2,6 +2,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
+from queue import Empty
 from threading import Thread
 from typing import Literal
 
@@ -12,8 +13,8 @@ import pytesseract
 from libcamera import Transform
 from picamera2 import Picamera2
 
+from .car_detector import CarDetector
 from .diff_detector import DifferenceDetector
-from .motion_detector import MotionDetector
 from .ocr_detector import OcrDetector
 from .plate_detector import PlateDetector
 
@@ -25,7 +26,6 @@ def sleep_until(until: float):
         time.sleep(0.5)
 
 
-@contextmanager
 def run_for(seconds: float):
     end_time = time.time() + seconds
     while time.time() < end_time:
@@ -65,78 +65,60 @@ class Runner:
     def __init__(
         self,
         diff_detector: DifferenceDetector,
-        motion_detector: MotionDetector,
+        car_detector: CarDetector,
         plate_detector: PlateDetector,
         ocr_detector: OcrDetector,
         mqtt_client: mqtt.Client,
     ):
         self.diff_detector = diff_detector
-        self.motion_detector = motion_detector
+        self.car_detector = car_detector
         self.plate_detector = plate_detector
         self.ocr_detector = ocr_detector
         self.mqtt_client = mqtt_client
 
     def run(self):
         self.diff_detector.start()
-        self.motion_detector.start_paused()
+        # if self.car_detector:
+        #     self.car_detector.start_paused()
+        if self.plate_detector:
+            self.plate_detector.start_paused()
 
         while True:
             self.diff_detector.next_detected()
-            motion_direction = self.motion_detector.next_detected(timeout=15.0)
-            if not motion_direction:
-                continue
+
+            # if self.car_detector is None:
+            #     continue
+
+            # result = self.car_detector.next_detected(timeout=10.0)
+            # if result is None:
+            #     continue
+            # motion_direction, _ = result
 
             if self.plate_detector is None:
                 continue
-
-            plate = self.plate_detector.next_detected(timeout=15.0)
-            if not plate:
+            result = self.plate_detector.next_detected(timeout=10.0)
+            if result is None:
                 continue
+            plate, motion_direction = result
 
             if self.ocr_detector is None:
                 continue
+
             # Detect plates for the next seconds...
-            with run_for(15):
+            self.plate_detector.resume()
+            end_time = time.time() + 5
+            while time.time() < end_time:
                 ocr = self.ocr_detector.process(plate)
                 if ocr:
                     logging.getLogger(__name__).info(f"OCR: {ocr}")
                     if self.mqtt_client is not None:
-                        self.mqtt_client.publish(
-                            "garage/plate",
-                            f"{motion_direction} {ocr}",
-                            qos=1,
-                        )
-                plate = self.plate_detector.detected.get(timeout=1)
-
-
-def main():
-    logging.basicConfig(level=logging.DEBUG)
-    cam = Picamera2()
-    config = cam.create_still_configuration(
-        main={"size": (2592, 1944), "format": "RGB888"},
-        lores={"size": (480, 360), "format": "RGB888"},
-        transform=Transform(hflip=True, vflip=True),
-    )
-    cam.configure(config)
-    cam.start()
-
-    # mqtt_client = mqtt.Client()
-    # mqtt_client.connect("localhost", 1883, 60)
-
-    diff_detector = DifferenceDetector(cam, cam_setting="lowres")
-    motion_detector = MotionDetector(cam, cam_setting="lowres")
-    plate_detector = PlateDetector(cam, cam_setting="main", debug=True)
-    ocr_detector = OcrDetector(debug=True)
-
-    runner = Runner(
-        diff_detector=diff_detector,
-        motion_detector=motion_detector,
-        plate_detector=None,
-        ocr_detector=None,
-        mqtt_client=None,
-    )
-    runner.run()
-
-
-if __name__ == "__main__":
-    main()
+                        message = f"{motion_direction} {ocr}"
+                        logging.getLogger(__name__).info(f"MQTT publish: '{message}'")
+                        self.mqtt_client.publish("garage/plate", message, qos=1)
+                try:
+                    plate, motion_direction = self.plate_detector.detected.get(
+                        timeout=1
+                    )
+                except Empty:
+                    break
+            self.plate_detector.pause()

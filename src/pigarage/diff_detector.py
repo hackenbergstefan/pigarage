@@ -12,8 +12,8 @@ class DifferenceDetector(DetectionThread):
     def __init__(
         self,
         cam: Picamera2,
-        cam_setting="lowres",
-        threshold: float = 50.0,
+        cam_setting="lores",
+        threshold: float = 10.0,
     ):
         super().__init__(cam=cam, cam_setting=cam_setting)
 
@@ -23,11 +23,11 @@ class DifferenceDetector(DetectionThread):
     def process(self, img: cv2.typing.MatLike) -> bool:
         if self._previous is None:
             self._previous = img
-            return False
+            return None
         mse = np.square(np.subtract(self._previous, img)).mean()
         self._previous = img
         if mse > self.threshold:
             self.last_motion = time.time()
             logging.getLogger(__name__).debug(f"motion detected. mse: {mse}")
             return True
-        return False
+        return None

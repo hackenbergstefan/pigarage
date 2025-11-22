@@ -40,7 +40,10 @@ class DetectionThread(Thread):
         If the camera is not set, it will get an image from the images queue.
         """
         if self.cam is not None:
-            return self.cam.capture_array(self.cam_setting)
+            img = self.cam.capture_array(self.cam_setting)
+            # if self.cam_setting == "lores":
+            #     img = cv2.cvtColor(img, cv2.COLOR_YUV2RGB)
+            return img
         else:
             try:
                 return self.images.get(timeout=1)
@@ -73,11 +76,14 @@ class DetectionThread(Thread):
                 self.pause()
 
     def next_detected(self, timeout: float = 0.0) -> Any:
-        start = time.time()
+        end_time = time.time() + timeout
+        # print(self.__class__, "next_detected", time.time(), end_time)
         if self.paused:
             self.resume()
-        while self.detected.empty() and time.time() - start < timeout:
+        while self.detected.empty() and (time.time() < end_time or timeout == 0.0):
+            # print(self.__class__, "-> next_detected", time.time(), end_time)
             time.sleep(0.3)
+        self.pause()
         if not self.detected.empty():
             return self.detected.get()
         return None
