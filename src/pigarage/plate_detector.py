@@ -1,5 +1,4 @@
 import logging
-import time
 from queue import Queue
 
 import cv2
@@ -28,11 +27,9 @@ class PlateDetector(DetectionThread):
         self.debug = debug
         self.detected = Queue(maxsize=0)
         self.history = []
-        self.history_length = 5
+        self.history_length = 4
 
     def process(self, img: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
-        # img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-        # img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
         results = self.model.predict(
             source=img,
             verbose=False,

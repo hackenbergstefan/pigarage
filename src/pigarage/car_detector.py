@@ -1,15 +1,16 @@
 import logging
-import time
 from pathlib import Path
-from queue import Queue
 
 import cv2
 import ultralytics.utils.files
-from huggingface_hub import hf_hub_download
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
 from .util import DetectionThread
+
+"""
+DEPRECATED
+"""
 
 
 def increment_path_exists_ok(
