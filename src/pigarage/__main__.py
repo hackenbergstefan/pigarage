@@ -1,44 +1,65 @@
 import logging
+from configparser import ConfigParser
 
-import paho.mqtt.client as mqtt
 from picamera2 import Picamera2
 
-from . import Runner
-from .diff_detector import DifferenceDetector
-from .ocr_detector import OcrDetector
-from .plate_detector import PlateDetector
+from . import PiGarage
+
+Picamera2.set_logging(logging.ERROR)
+
+
+class Config:
+    def __init__(self):
+        self.config = ConfigParser()
+        self.config.read("pigarage.ini")
+
+    @property
+    def mqtt(self):
+        return self.config["mqtt"]
+
+    @property
+    def gpio(self):
+        return self.config["gpio"]
+
+    @property
+    def logging(self):
+        return self.config["logging"]
+
+    @property
+    def pigarage(self):
+        return self.config["pigarage"]
+
+
+def allowed_detected(plate: str):
+    pass
 
 
 def main():
+    config = Config()
+
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=getattr(logging, config.logging.get("level", "INFO")),
         format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    cam = Picamera2()
-    config = cam.create_still_configuration(
-        main={"size": (2592, 1944), "format": "RGB888"},
-        lores={"size": (480, 360)},
-        # transform=Transform(hflip=True, vflip=True),
+
+    PiGarage(
+        gpio_ir_barrier_power=int(config.gpio["ir_barrier_power"]),
+        gpio_ir_barrier_sensor=int(config.gpio["ir_barrier_sensor"]),
+        gpio_ir_light_power=int(config.gpio["ir_light_power"]),
+        gpio_gate_button=int(config.gpio["gate_button"]),
+        gpio_gate_closed=int(config.gpio["gate_closed"]),
+        gpio_gate_opened=int(config.gpio["gate_opened"]),
+        mqtt_host=config.mqtt["host"],
+        mqtt_username=config.mqtt["username"],
+        mqtt_password=config.mqtt["password"],
+        debug=config.logging.getboolean("debug", False),
+        allowed_plates=[
+            p
+            for plate in str(config.pigarage["allowed_plates"]).split(",")
+            if (p := plate.strip())
+        ],
     )
-    cam.configure(config)
-    cam.start()
-
-    mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    mqtt_client.username_pw_set(username="broker", password="123")
-    mqtt_client.connect("192.168.1.4")
-
-    diff_detector = DifferenceDetector(cam, cam_setting="lores", threshold=5)
-    plate_detector = PlateDetector(cam, cam_setting="main", debug=True)
-    ocr_detector = OcrDetector(debug=True)
-
-    runner = Runner(
-        diff_detector=diff_detector,
-        plate_detector=plate_detector,
-        ocr_detector=ocr_detector,
-        mqtt_client=mqtt_client,
-    )
-    runner.run()
 
 
 if __name__ == "__main__":

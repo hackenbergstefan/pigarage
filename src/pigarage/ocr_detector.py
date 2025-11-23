@@ -9,7 +9,12 @@ import pytesseract
 def cv2_mask_non_plate(plate):
     # Find contour with biggest area
     plate = cv2.GaussianBlur(plate, ksize=(3, 3), sigmaX=1.0)
-    _, plate = cv2.threshold(plate, 100, 255, cv2.THRESH_BINARY)
+    for threshold in (100, 50, 150, 200, 250):
+        _, plate2 = cv2.threshold(plate, threshold, 255, cv2.THRESH_BINARY)
+        print("minmax", np.min(plate2), np.max(plate2))
+        if np.max(plate2) - np.min(plate2) > 0:
+            plate = plate2
+            break
     contours, _ = cv2.findContours(plate, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda c: cv2.contourArea(c), reverse=True)
     if len(contours) == 0:
@@ -29,16 +34,29 @@ def cv2_fix_perspective(plate, contour):
     (_rect_x, _rect_y), (rect_width, rect_height), _rect_angle = rect
     box = np.uint(cv2.boxPoints(rect))
     # Calculate transformation matrix
+    aspect = rect_height / rect_width
+    if aspect > 1.0:
+        aspect = rect_width / rect_height
     img_h, img_w = plate.shape[:2]
-    new_w, new_h = (img_w, int(rect_height / rect_width * img_w))
-    dst = np.float32(
-        [
-            [0.0, new_h],
-            [0, 0],
-            [new_w, 0.0],
-            [new_w, new_h],
-        ]
-    )
+    new_w, new_h = (img_w, int(aspect * img_w))
+    if rect_width > rect_height:
+        dst = np.float32(
+            [
+                [0.0, new_h],
+                [0, 0],
+                [new_w, 0.0],
+                [new_w, new_h],
+            ]
+        )
+    else:
+        dst = np.float32(
+            [
+                [0, 0],
+                [new_w, 0.0],
+                [new_w, new_h],
+                [0.0, new_h],
+            ]
+        )
     mat = cv2.getPerspectiveTransform(np.float32(box), dst)
     plate = cv2.warpPerspective(
         plate,

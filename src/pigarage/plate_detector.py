@@ -1,12 +1,23 @@
 import logging
+from pathlib import Path
 from queue import Queue
 
 import cv2
+import ultralytics
 from huggingface_hub import hf_hub_download
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
 from .util import DetectionThread
+
+
+def increment_path_exists_ok(
+    path: str | Path, exist_ok: bool = False, sep: str = "", mkdir: bool = False
+) -> Path:
+    return path
+
+
+ultralytics.utils.files.increment_path = increment_path_exists_ok
 
 
 class PlateDetector(DetectionThread):
