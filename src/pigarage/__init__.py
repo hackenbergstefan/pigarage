@@ -4,7 +4,10 @@ from queue import Empty
 from typing import Callable, Literal
 
 import paho.mqtt.client as mqtt
+from paho.mqtt.client import MQTTMessage
+from paho.mqtt.subscribeoptions import SubscribeOptions
 from picamera2 import Picamera2
+from RPi import GPIO
 
 from .diff_detector import DifferenceDetector
 from .gate import Gate
@@ -97,7 +100,8 @@ class PiGarage:
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.username_pw_set(username=mqtt_username, password=mqtt_password)
         self.mqtt_client.connect(mqtt_host)
-        self.mqtt_client.subscribe("pigarage/+")
+        options = SubscribeOptions(qos=2, noLocal=True)
+        self.mqtt_client.subscribe("pigarage/+", options=options)
         self.mqtt_client.on_message = self.mqtt_receive
         self.mqtt_client.loop_start()
 
@@ -106,8 +110,10 @@ class PiGarage:
             gpio_gate_button=gpio_gate_button,
             gpio_gate_closed=gpio_gate_closed,
             gpio_gate_opened=gpio_gate_opened,
-            on_opened=lambda _: self.mqtt_client.publish("pigarage/gate", b"opened"),
-            on_closed=lambda _: self.mqtt_client.publish("pigarage/gate", b"closed"),
+            on_opened=lambda _: logging.getLogger(__name__).info("on_opened")
+            or self.mqtt_client.publish("pigarage/gate", b"opened"),
+            on_closed=lambda _: logging.getLogger(__name__).info("on_closed")
+            or self.mqtt_client.publish("pigarage/gate", b"closed"),
         )
         self.ir_barrier = IRBarrier(
             gpio_ir_barrier_power=gpio_ir_barrier_power,
@@ -189,5 +195,11 @@ class PiGarage:
     def plate_detected(self) -> None:
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
-    def mqtt_receive(self, client, data, message):
-        print(message.topic, message.payload)
+    def mqtt_receive(self, client, data, message: MQTTMessage):
+        logging.getLogger(__name__).debug(message.topic, message.payload)
+        match message.topic:
+            case "pigarage/gate":
+                if message.payload == b"open":
+                    self.gate.open()
+                elif message.payload == b"close":
+                    self.gate.close()

@@ -23,13 +23,23 @@ class Gate:
         GPIO.setup(self.gpio_gate_opened, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         if on_opened:
             GPIO.add_event_detect(
-                self.gpio_gate_opened, edge=GPIO.BOTH, callback=on_opened
+                self.gpio_gate_opened,
+                edge=GPIO.RISING,
+                callback=lambda i: GPIO.input(self.gpio_gate_closed) == GPIO.LOW
+                and GPIO.input(self.gpio_gate_opened) == GPIO.HIGH
+                and on_opened(i),
+                bouncetime=2000,
             )
             if self.is_opened():
                 on_opened(self.gpio_gate_opened)
         if on_closed:
             GPIO.add_event_detect(
-                self.gpio_gate_closed, edge=GPIO.BOTH, callback=on_closed
+                self.gpio_gate_closed,
+                edge=GPIO.RISING,
+                callback=lambda i: GPIO.input(self.gpio_gate_opened) == GPIO.LOW
+                and GPIO.input(self.gpio_gate_closed) == GPIO.HIGH
+                and on_closed(i),
+                bouncetime=2000,
             )
             if self.is_closed():
                 on_closed(self.gpio_gate_closed)
