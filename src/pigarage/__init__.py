@@ -93,19 +93,6 @@ class PiGarage:
     ):
         self.allowed_plates = allowed_plates
 
-        # Setup GPIO devices
-        self.gate = Gate(
-            gpio_gate_button=gpio_gate_button,
-            gpio_gate_closed=gpio_gate_closed,
-            gpio_gate_opened=gpio_gate_opened,
-        )
-        self.ir_barrier = IRBarrier(
-            gpio_ir_barrier_power=gpio_ir_barrier_power,
-            gpio_ir_barrier_sensor=gpio_ir_barrier_sensor,
-        )
-        self.neopixel = NeopixelSpi(bus=0, device=0, leds=12)
-        self.ir_light = IRLight(gpio_ir_light_power)
-
         # Setup MQTT client
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.username_pw_set(username=mqtt_username, password=mqtt_password)
@@ -113,6 +100,21 @@ class PiGarage:
         self.mqtt_client.subscribe("pigarage/+")
         self.mqtt_client.on_message = self.mqtt_receive
         self.mqtt_client.loop_start()
+
+        # Setup GPIO devices
+        self.gate = Gate(
+            gpio_gate_button=gpio_gate_button,
+            gpio_gate_closed=gpio_gate_closed,
+            gpio_gate_opened=gpio_gate_opened,
+            on_opened=lambda _: self.mqtt_client.publish("pigarage/gate", b"opened"),
+            on_closed=lambda _: self.mqtt_client.publish("pigarage/gate", b"closed"),
+        )
+        self.ir_barrier = IRBarrier(
+            gpio_ir_barrier_power=gpio_ir_barrier_power,
+            gpio_ir_barrier_sensor=gpio_ir_barrier_sensor,
+        )
+        self.neopixel = NeopixelSpi(bus=0, device=0, leds=12)
+        self.ir_light = IRLight(gpio_ir_light_power)
 
         # Setup camera
         self.cam = Picamera2()
@@ -188,4 +190,4 @@ class PiGarage:
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
     def mqtt_receive(self, client, data, message):
-        print(message)
+        print(message.topic, message.payload)
