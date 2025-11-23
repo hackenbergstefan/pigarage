@@ -11,7 +11,6 @@ def cv2_mask_non_plate(plate):
     plate = cv2.GaussianBlur(plate, ksize=(3, 3), sigmaX=1.0)
     for threshold in (100, 50, 150, 200, 250):
         _, plate2 = cv2.threshold(plate, threshold, 255, cv2.THRESH_BINARY)
-        print("minmax", np.min(plate2), np.max(plate2))
         if np.max(plate2) - np.min(plate2) > 0:
             plate = plate2
             break
@@ -71,9 +70,9 @@ class OcrDetector:
         self.debug = debug
 
     def postprocess(self, ocr: str) -> str:
-        ocr = re.search("A\.? ?\.?[A-Z]{0,2} ?[0-9]{3,4}$", ocr)
+        ocr = re.search("[A-Z]{1,2}\.? ?\.?[A-Z]{0,2} ?[0-9]{2,4}$", ocr)
         if ocr:
-            return ocr.group(0)
+            return ocr.group(0).replace(" ", "").replace(".", "")
         return None
 
     def _improve_image(self, plate: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
