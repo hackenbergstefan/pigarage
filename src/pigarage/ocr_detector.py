@@ -7,13 +7,18 @@ import pytesseract
 
 
 def cv2_mask_non_plate(plate):
-    # Find contour with biggest area
+    # Convert plate to b/w; using threshold with best "contrast"
     plate = cv2.GaussianBlur(plate, ksize=(3, 3), sigmaX=1.0)
-    for threshold in (100, 50, 150, 200, 250):
-        _, plate2 = cv2.threshold(plate, threshold, 255, cv2.THRESH_BINARY)
-        if np.max(plate2) - np.min(plate2) > 0:
-            plate = plate2
-            break
+    plate = sorted(
+        [
+            cv2.threshold(plate, threshold, 255, cv2.THRESH_BINARY)
+            for threshold in (30, 50, 100, 150, 200, 220)
+        ],
+        key=lambda p: np.std(p),
+        reverse=True,
+    )[0]
+
+    # Find contour with biggest area
     contours, _ = cv2.findContours(plate, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda c: cv2.contourArea(c), reverse=True)
     if len(contours) == 0:
@@ -83,6 +88,7 @@ class OcrDetector:
         return plate
 
     def process(self, plate: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
+        cv2.imwrite("/tmp/ocr_pre.jpg", plate)
         plate = self._improve_image(plate)
         cv2.imwrite("/tmp/ocr.jpg", plate)
         result = pytesseract.image_to_string(
