@@ -27,6 +27,7 @@ class LicensePlateProcessor:
         plate_detector: PlateDetector,
         ocr_detector: OcrDetector,
         on_idle: Callable[[], None] = lambda: None,
+        on_diff_detected: Callable[[], None] = lambda: None,
         on_plate_detected: Callable[[], None] = lambda: None,
         on_ocr_detected: Callable[
             [str, Literal["arriving", "leaving"]], None
@@ -36,6 +37,7 @@ class LicensePlateProcessor:
         self.plate_detector = plate_detector
         self.ocr_detector = ocr_detector
         self.on_idle = on_idle
+        self.on_diff_detected = on_diff_detected
         self.on_plate_detected = on_plate_detected
         self.on_ocr_detected = on_ocr_detected
 
@@ -48,6 +50,7 @@ class LicensePlateProcessor:
             # Wait for next diff ...
             self.on_idle()
             self.diff_detector.next_detected()
+            self.on_diff_detected()
 
             if self.plate_detector is None:
                 continue
@@ -147,12 +150,17 @@ class PiGarage:
             ),
             ocr_detector=OcrDetector(debug=debug),
             on_idle=self.on_idle,
+            on_diff_detected=self.on_diff_detected,
             on_plate_detected=self.plate_detected,
             on_ocr_detected=self.ocr_detected,
         ).run()
 
     def on_idle(self):
         self.neopixel.clear()
+        self.ir_light.turn_off()
+
+    def on_diff_detected(self):
+        self.ir_light.turn_on()
 
     def ocr_detected(
         self,
