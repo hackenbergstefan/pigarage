@@ -48,7 +48,7 @@ class PlateDetector(DetectionThread):
             save_crop=self.debug,
             project="/tmp",
             name="plate_detector",
-            imgsz=256,
+            imgsz=512,
         )
         plate = None
         if results[0].boxes:
