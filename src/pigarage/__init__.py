@@ -204,7 +204,9 @@ class PiGarage:
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
     def mqtt_receive(self, client, data, message: MQTTMessage):
-        logging.getLogger(__name__).debug(message.topic, message.payload)
+        logging.getLogger(__name__).debug(
+            f"mqtt_receive: {message.topic}, {message.payload}"
+        )
         match message.topic:
             case "pigarage/gate":
                 if message.payload == b"open":

@@ -1,43 +1,17 @@
 import logging
-from configparser import ConfigParser
 
 from picamera2 import Picamera2
 
 from . import PiGarage
+from .config import config
 
 Picamera2.set_logging(logging.ERROR)
 
 
-class Config:
-    def __init__(self):
-        self.config = ConfigParser()
-        self.config.read("pigarage.ini")
-
-    @property
-    def mqtt(self):
-        return self.config["mqtt"]
-
-    @property
-    def gpio(self):
-        return self.config["gpio"]
-
-    @property
-    def logging(self):
-        return self.config["logging"]
-
-    @property
-    def pigarage(self):
-        return self.config["pigarage"]
-
-
-def allowed_detected(plate: str):
-    pass
-
-
 def main():
-    config = Config()
-
     logging.basicConfig(
+        filename=config.logdir / "pigarage.log",
+        filemode="a",
         level=getattr(logging, config.logging.get("level", "INFO")),
         format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",

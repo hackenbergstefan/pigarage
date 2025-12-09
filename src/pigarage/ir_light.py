@@ -1,3 +1,5 @@
+import logging
+
 import RPi.GPIO as GPIO
 
 
@@ -9,7 +11,9 @@ class IRLight:
         GPIO.setup(self.gpio_ir_light, GPIO.OUT, initial=GPIO.LOW)
 
     def turn_on(self):
+        logging.getLogger(__name__).debug("IRLight turn_on")
         GPIO.output(self.gpio_ir_light, GPIO.HIGH)
 
     def turn_off(self):
+        logging.getLogger(__name__).debug("IRLight turn_off")
         GPIO.output(self.gpio_ir_light, GPIO.LOW)

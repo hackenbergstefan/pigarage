@@ -1,10 +1,12 @@
 import logging
 import re
+import time
 
 import cv2
 import numpy as np
 import pytesseract
 
+from .config import config as pigarage_config
 
 
 def cv2_mask_non_plate(plate, threshold):
@@ -90,12 +92,22 @@ class OcrDetector:
         return plate
 
     def process(self, plate: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
-        cv2.imwrite("/tmp/ocr_pre.jpg", plate)
+        if self.debug:
+            cv2.imwrite(
+                pigarage_config.logdir
+                / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_pre.jpg",
+                plate,
+            )
         plate = self._improve_image(plate)
-        cv2.imwrite("/tmp/ocr.jpg", plate)
+        if self.debug:
+            cv2.imwrite(
+                pigarage_config.logdir
+                / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_post.jpg",
+                plate,
+            )
         result = pytesseract.image_to_string(
             plate,
             config="--psm 13 -c tessedit_char_whitelist='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ .'",
         )
-        logging.getLogger(__name__).debug(result)
+        logging.getLogger(__name__).info(f"OCR: {result}")
         return self.postprocess(result)

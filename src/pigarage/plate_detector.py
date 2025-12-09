@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 from queue import Queue
 
@@ -8,6 +9,7 @@ from huggingface_hub import hf_hub_download
 from picamera2 import Picamera2
 from ultralytics import YOLO
 
+from .config import config as pigarage_config
 from .util import DetectionThread
 
 
@@ -54,6 +56,15 @@ class PlateDetector(DetectionThread):
         if results[0].boxes:
             x1, y1, x2, y2 = map(int, results[0].boxes[0].xyxy[0].tolist())
             self.history.append((y1 + y2) / 2)
+            if self.debug:
+                cv2.imwrite(
+                    pigarage_config.logdir
+                    / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_plate.jpg",
+                    cv2.rectangle(
+                        img, (x1, y1), (x2, y2), color=(255, 0, 0), thickness=3
+                    ),
+                )
+
             logging.getLogger(__name__).debug("Plate found")
             plate = img[y1:y2, x1:x2]
 
