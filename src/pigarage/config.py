@@ -1,6 +1,8 @@
 from configparser import ConfigParser, SectionProxy
 from pathlib import Path
 
+VISUAL_DEBUG = False
+
 
 class Config:
     def __init__(self) -> None:

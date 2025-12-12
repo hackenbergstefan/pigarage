@@ -6,7 +6,6 @@ from queue import Empty
 from typing import Literal
 
 import paho.mqtt.client as mqtt
-from paho.mqtt.client import MQTTMessage
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
 try:
@@ -72,7 +71,7 @@ class LicensePlateProcessor:
 
 
 class PiGarage:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         gpio_ir_barrier_power: int,
         gpio_ir_barrier_sensor: int,
@@ -83,8 +82,9 @@ class PiGarage:
         mqtt_host: str,
         mqtt_username: str,
         mqtt_password: str,
-        debug: bool,
         allowed_plates: list[str],
+        *,
+        debug: bool,
     ) -> None:
         # Setup MQTT client
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -118,7 +118,7 @@ class PiGarage:
             self.cam.create_still_configuration(
                 main={"size": (2592, 1944), "format": "RGB888"},
                 lores={"size": (480, 360)},
-                # transform=Transform(hflip=True, vflip=True),
+                # transform=Transform(hflip=True, vflip=True),  # noqa: ERA001
             )
         )
         self.cam.start()
@@ -190,7 +190,12 @@ class PiGarage:
     def on_plate_detected(self) -> None:
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
-    def mqtt_receive(self, client, data, message: MQTTMessage) -> None:
+    def mqtt_receive(
+        self,
+        _client: mqtt.Client,
+        _data: any,
+        message: mqtt.MQTTMessage,
+    ) -> None:
         logging.getLogger(__name__).debug(
             f"mqtt_receive: {message.topic}, {message.payload}"
         )

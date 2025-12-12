@@ -1,0 +1,19 @@
+name: lint and test
+
+on: [push, pull_request]
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/ruff-action@v3
+
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sudo apt install -y tesseract-ocr
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --dev
+      - run: uv run pytest -sv tests
