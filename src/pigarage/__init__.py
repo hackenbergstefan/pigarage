@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import time
 from queue import Empty
@@ -7,7 +8,6 @@ import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTMessage
 from paho.mqtt.subscribeoptions import SubscribeOptions
 from picamera2 import Picamera2
-from RPi import GPIO
 
 from .diff_detector import DifferenceDetector
 from .gate import Gate
@@ -26,60 +26,41 @@ class LicensePlateProcessor:
         diff_detector: DifferenceDetector,
         plate_detector: PlateDetector,
         ocr_detector: OcrDetector,
-        on_idle: Callable[[], None] = lambda: None,
-        on_diff_detected: Callable[[], None] = lambda: None,
-        on_plate_detected: Callable[[], None] = lambda: None,
-        on_ocr_detected: Callable[
+        on_allowed: Callable[
             [str, Literal["arriving", "leaving"]], None
-        ] = lambda ocr, direction: None,
+        ] = lambda _: None,
     ):
-        self.diff_detector = diff_detector
-        self.plate_detector = plate_detector
-        self.ocr_detector = ocr_detector
-        self.on_idle = on_idle
-        self.on_diff_detected = on_diff_detected
-        self.on_plate_detected = on_plate_detected
-        self.on_ocr_detected = on_ocr_detected
+        self._diff_detector = diff_detector
+        self._plate_detector = plate_detector
+        self._ocr_detector = ocr_detector
+        self._on_allowed = on_allowed
 
     def run(self):
-        self.diff_detector.start()
-        if self.plate_detector:
-            self.plate_detector.start_paused()
+        self._plate_detector.start_paused()
+        self._ocr_detector.start_paused()
+        self._diff_detector.start_paused()
 
         while True:
-            # Wait for next diff ...
-            self.on_idle()
-            self.diff_detector.next_detected()
-            self.on_diff_detected()
+            # Wait for next diff
+            self._diff_detector.resume()
+            self._diff_detector.wait()
 
-            if self.plate_detector is None:
-                continue
+            # Start detecting plate and text
+            self._plate_detector.resume()
+            self._ocr_detector.resume()
 
-            # Wait for next plate ...
-            result = self.plate_detector.next_detected(timeout=10.0)
-            if result is None:
-                continue
-            plate, motion_direction = result
-            self.on_plate_detected()
-
-            if self.ocr_detector is None:
-                continue
-
-            # Detect plates and try ocr for the next seconds...
-            self.plate_detector.resume()
-            end_time = time.time() + 5
-            while time.time() < end_time:
-                ocr = self.ocr_detector.process(plate)
-                if ocr:
-                    logging.getLogger(__name__).info(f"OCR: {ocr}")
-                    self.on_ocr_detected(ocr, motion_direction)
-                try:
-                    plate, motion_direction = self.plate_detector.detected.get(
-                        timeout=1
-                    )
-                except Empty:
-                    break
-            self.plate_detector.pause()
+            # Wait for plate text and direction
+            with contextlib.suppress(Empty):
+                allowed_plate = self._ocr_detector.detected_ocrs.get(timeout=10.0)
+                self._ocr_detector.pause()
+                direction = self._plate_detector.detected_directions.get(timeout=10.0)
+                self._plate_detector.pause()
+                logging.getLogger(__name__).info(
+                    f"Allowed Plate '{allowed_plate}' in direction '{direction}'"
+                )
+                self._on_allowed(allowed_plate, direction)
+            self._plate_detector.pause()
+            self._ocr_detector.pause()
 
 
 class PiGarage:
@@ -97,8 +78,6 @@ class PiGarage:
         debug: bool,
         allowed_plates: list[str],
     ):
-        self.allowed_plates = allowed_plates
-
         # Setup MQTT client
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.username_pw_set(username=mqtt_username, password=mqtt_password)
@@ -137,22 +116,27 @@ class PiGarage:
         self.cam.start()
 
         # Setup license plate processor
+        plate_detector = PlateDetector(
+            self.cam,
+            cam_setting="main",
+            debug=debug,
+            on_notifying=self.on_plate_detected,
+        )
         self.license_plate_processor = LicensePlateProcessor(
             diff_detector=DifferenceDetector(
                 self.cam,
                 cam_setting="lores",
-                threshold=5,
+                threshold=50,
+                on_resume=self.on_idle,
+                on_notifying=self.on_diff_detected,
             ),
-            plate_detector=PlateDetector(
-                self.cam,
-                cam_setting="main",
+            plate_detector=plate_detector,
+            ocr_detector=OcrDetector(
                 debug=debug,
+                detected_plates=plate_detector.detected_plates,
+                allowed_plates=allowed_plates,
             ),
-            ocr_detector=OcrDetector(debug=debug),
-            on_idle=self.on_idle,
-            on_diff_detected=self.on_diff_detected,
-            on_plate_detected=self.plate_detected,
-            on_ocr_detected=self.ocr_detected,
+            on_allowed=self.on_allowed,
         ).run()
 
     def on_idle(self):
@@ -162,45 +146,40 @@ class PiGarage:
     def on_diff_detected(self):
         self.ir_light.turn_on()
 
-    def ocr_detected(
+    def on_allowed(
         self,
-        plate: str,
+        _plate: str,
         motion_direction: Literal["arriving", "leaving"],
     ) -> None:
-        logging.getLogger(__name__).info(
-            f"Detected plate: {plate} ({motion_direction})"
-        )
-        self.neopixel.roll(color=(0, 255, 0), duration=1.0)
-        if plate in self.allowed_plates:
-            with self.ir_barrier:
-                logging.getLogger(__name__).info(
-                    f"Checking gate {motion_direction} "
-                    f"closed: {self.gate.is_closed()} "
-                    f"opened: {self.gate.is_opened()} "
-                    f"ir_barrier: {self.ir_barrier.is_blocked}"
-                )
-                if (
-                    motion_direction == "arriving"
-                    and self.gate.is_closed()
-                    and not self.ir_barrier.is_blocked
-                ):
-                    logging.getLogger(__name__).info("Opening gate...")
-                    self.neopixel.roll(color=(255, 0, 0))
-                    time.sleep(2)
-                    self.gate.open()
-                    self.neopixel.clear()
-                if (
-                    motion_direction == "leaving"
-                    and self.gate.is_opened()
-                    and not self.ir_barrier.is_blocked
-                ):
-                    self.neopixel.roll(color=(255, 0, 0))
-                    time.sleep(2)
-                    logging.getLogger(__name__).info("Closing gate...")
-                    self.gate.close()
-                    self.neopixel.clear()
+        with self.ir_barrier:
+            logging.getLogger(__name__).info(
+                f"Checking gate {motion_direction} "
+                f"closed: {self.gate.is_closed()} "
+                f"opened: {self.gate.is_opened()} "
+                f"ir_barrier: {self.ir_barrier.is_blocked}"
+            )
+            self.neopixel.roll(color=(255, 0, 0))
+            time.sleep(2)
+            if (
+                motion_direction == "arriving"
+                and self.gate.is_closed()
+                and not self.ir_barrier.is_blocked
+            ):
+                logging.getLogger(__name__).info("Opening gate...")
+                self.gate.open()
+            if (
+                motion_direction == "leaving"
+                and self.gate.is_opened()
+                and not self.ir_barrier.is_blocked
+            ):
+                logging.getLogger(__name__).info("Closing gate...")
+                self.gate.close()
 
-    def plate_detected(self) -> None:
+            self.neopixel.clear()
+            # Pause entire processing for a while
+            time.sleep(30)
+
+    def on_plate_detected(self):
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
     def mqtt_receive(self, client, data, message: MQTTMessage):

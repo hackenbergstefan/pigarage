@@ -1,33 +1,44 @@
 import logging
-import time
+from typing import Callable
 
-import cv2
 import numpy as np
 from picamera2 import Picamera2
 
-from .util import DetectionThread
+from .util import PausableNotifingThread
 
 
-class DifferenceDetector(DetectionThread):
+class DifferenceDetector(PausableNotifingThread):
     def __init__(
         self,
         cam: Picamera2,
         cam_setting="lores",
         threshold: float = 10.0,
+        on_resume: Callable[[], None] = lambda: None,
+        on_notifying: Callable[[], None] = lambda: None,
     ):
-        super().__init__(cam=cam, cam_setting=cam_setting)
-
+        super().__init__(on_resume=on_resume, on_notifying=on_notifying)
+        self.cam = cam
+        self.cam_setting = cam_setting
         self.threshold = threshold
         self._previous = None
 
-    def process(self, img: cv2.typing.MatLike) -> bool:
+    def pause(self):
+        self._previous = None
+        return super().pause()
+
+    def process(self):
+        """
+        Capture new image and compare with previous.
+        If differing sufficiently, notify and pause.
+        """
+        img = self.cam.capture_array(self.cam_setting)
+
         if self._previous is None:
             self._previous = img
-            return None
+            return
         mse = np.square(np.subtract(self._previous, img)).mean()
         self._previous = img
         if mse > self.threshold:
-            self.last_motion = time.time()
             logging.getLogger(__name__).debug(f"motion detected. mse: {mse}")
-            return True
-        return None
+            self._notify_waiters()
+            self.pause()

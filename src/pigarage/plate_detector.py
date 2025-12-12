@@ -2,6 +2,7 @@ import logging
 import time
 from pathlib import Path
 from queue import Queue
+from typing import Callable
 
 import cv2
 import ultralytics
@@ -10,7 +11,7 @@ from picamera2 import Picamera2
 from ultralytics import YOLO
 
 from .config import config as pigarage_config
-from .util import DetectionThread
+from .util import PausableNotifingThread
 
 
 def increment_path_exists_ok(
@@ -22,32 +23,38 @@ def increment_path_exists_ok(
 ultralytics.utils.files.increment_path = increment_path_exists_ok
 
 
-class PlateDetector(DetectionThread):
+class PlateDetector(PausableNotifingThread):
     def __init__(
         self,
         cam: Picamera2,
         cam_setting="main",
+        on_resume: Callable[[], None] = lambda: None,
+        on_notifying: Callable[[], None] = lambda: None,
         *,
         debug=False,
     ):
-        super().__init__(cam=cam, cam_setting=cam_setting)
+        super().__init__(on_resume=on_resume, on_notifying=on_notifying)
         self.model = YOLO(
             hf_hub_download(
                 "morsetechlab/yolov11-license-plate-detection",
                 "license-plate-finetune-v1n.pt",
             )
         )
-        self.debug = debug
-        self.detected = Queue(maxsize=0)
-        self.history = []
-        self.history_length = 4
+        self._cam = cam
+        self._cam_setting = cam_setting
+        self._debug = debug
+        self.detected_plates = Queue(maxsize=0)
+        self.detected_directions = Queue(maxsize=0)
+        self._history = []
+        self._history_length = 4
 
-    def process(self, img: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
+    def process(self):
+        img = self._cam.capture_array(self._cam_setting)
         results = self.model.predict(
             source=img,
             verbose=False,
-            save=self.debug,
-            save_crop=self.debug,
+            save=self._debug,
+            save_crop=self._debug,
             project="/tmp",
             name="plate_detector",
             imgsz=512,
@@ -55,8 +62,7 @@ class PlateDetector(DetectionThread):
         plate = None
         if results[0].boxes:
             x1, y1, x2, y2 = map(int, results[0].boxes[0].xyxy[0].tolist())
-            self.history.append((y1 + y2) / 2)
-            if self.debug:
+            if self._debug:
                 cv2.imwrite(
                     pigarage_config.logdir
                     / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_plate.jpg",
@@ -66,22 +72,25 @@ class PlateDetector(DetectionThread):
                 )
 
             logging.getLogger(__name__).debug("Plate found")
+            self._history.append((y1 + y2) / 2)
             plate = img[y1:y2, x1:x2]
+            self.detected_plates.put(plate)
+            self._notify_waiters()
 
-        if len(self.history) == self.history_length:
-            ys = sorted(range(self.history_length), key=lambda i: self.history[i])
-            history_diff = abs(self.history[0] - self.history[-1])
-            self.history.clear()
+        if len(self._history) == self._history_length:
+            ys = sorted(range(self._history_length), key=lambda i: self._history[i])
+            history_diff = abs(self._history[0] - self._history[-1])
+            self._history.clear()
             if history_diff < 50:
-                return None
+                return
 
-            if ys == list(range(self.history_length)):
+            if ys == list(range(self._history_length)):
                 direction = "arriving"
                 logging.getLogger(__name__).debug(f"direction: {direction}")
-                return plate, direction
-            if ys == list(reversed(range(self.history_length))):
+                self._notify_waiters()
+                self.detected_directions.put(direction)
+            if ys == list(reversed(range(self._history_length))):
                 direction = "leaving"
                 logging.getLogger(__name__).debug(f"direction: {direction}")
-                return plate, direction
-
-        return None
+                self._notify_waiters()
+                self.detected_directions.put(direction)

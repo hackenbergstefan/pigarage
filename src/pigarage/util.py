@@ -1,89 +1,61 @@
-import time
-from queue import Empty, Queue
-from threading import Thread
-from typing import Any
-
-import cv2
-from picamera2 import Picamera2
+import logging
+from threading import Condition, Event, Thread
+from typing import Callable
 
 
-class DetectionThread(Thread):
-    """
-    Base class for detection threads that captures images from a camera and processes them.
-    If `process` returns a non-None value, the thread pauses until `resume` is called.
-    The actual value returned by `process` is stored in `self.detected`.
-    """
-
-    def __init__(self, cam: Picamera2, cam_setting="lowres", *args, **kwargs):
+class PausableNotifingThread(Thread):
+    def __init__(
+        self,
+        on_resume: Callable[[], None] = lambda: None,
+        on_notifying: Callable[[], None] = lambda: None,
+        *args,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs, daemon=True)
-        self.cam = cam
-        self.cam_setting = cam_setting
-        self.paused = False
-        self.detected = Queue(maxsize=1)
-        self.images = Queue(maxsize=1)
+        self._paused_condition = Condition()
+        self._paused = False
+        self._notification = Event()
+        self._on_resume = on_resume
+        self._on_notifying = on_notifying
 
     def start_paused(self):
-        self.paused = True
+        self._paused = True
         self.start()
+        with self._paused_condition:
+            self._paused_condition.notify()
 
     def pause(self):
-        self.paused = True
+        logging.getLogger(__name__).debug(f"{self.__class__.__name__} pause")
+        self._paused = True
+        with self._paused_condition:
+            self._paused_condition.notify()
 
     def resume(self):
-        while not self.detected.empty():
-            self.detected.get()
-        self.paused = False
-
-    def next_image(self) -> cv2.typing.MatLike | None:
-        """
-        Capture the next image from the camera.
-        If the camera is not set, it will get an image from the images queue.
-        """
-        if self.cam is not None:
-            img = self.cam.capture_array(self.cam_setting)
-            # if self.cam_setting == "lores":
-            #     img = cv2.cvtColor(img, cv2.COLOR_YUV2RGB)
-            return img
-        else:
-            try:
-                return self.images.get(timeout=1)
-            except Empty:
-                return None
-
-    def process(self, img: cv2.typing.MatLike) -> Any:
-        """
-        Process the captured image.
-        """
-        raise NotImplementedError("Subclasses must implement the process method.")
+        logging.getLogger(__name__).debug(f"{self.__class__.__name__} resume")
+        self._paused = False
+        with self._paused_condition:
+            self._paused_condition.notify()
 
     def run(self):
         while True:
-            while self.paused:
-                time.sleep(0.5)
+            # Wait until running
+            with self._paused_condition:
+                while self._paused:
+                    self._paused_condition.wait_for(lambda: self._paused is False)
+                    self._on_resume()
 
-            # Capture the next image
-            img = self.next_image()
-            if img is None:
-                continue
+            # process
+            self.process()
 
-            # Process the image and put the result if it is not None
-            result = self.process(img)
-            if result is not None:
-                self.detected.put(result)
+    def wait(self, timeout=None):
+        logging.getLogger(__name__).debug(f"{self.__class__.__name__} wait")
+        self._notification.wait(timeout=timeout)
 
-            # Pause if queue is full
-            if self.detected.full():
-                self.pause()
+    def _notify_waiters(self):
+        logging.getLogger(__name__).debug(f"{self.__class__.__name__} notify_waiters")
+        self._notification.set()
+        self._on_notifying()
+        self._notification.clear()
 
-    def next_detected(self, timeout: float = 0.0) -> Any:
-        end_time = time.time() + timeout
-        # print(self.__class__, "next_detected", time.time(), end_time)
-        if self.paused:
-            self.resume()
-        while self.detected.empty() and (time.time() < end_time or timeout == 0.0):
-            # print(self.__class__, "-> next_detected", time.time(), end_time)
-            time.sleep(0.3)
-        self.pause()
-        if not self.detected.empty():
-            return self.detected.get()
-        return None
+    def process(self):
+        raise NotImplementedError("Subclasses must implement the process method.")

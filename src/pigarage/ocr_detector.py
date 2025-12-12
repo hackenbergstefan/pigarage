@@ -1,12 +1,14 @@
 import logging
 import re
 import time
+from queue import Queue
 
 import cv2
 import numpy as np
 import pytesseract
 
 from .config import config as pigarage_config
+from .util import PausableNotifingThread
 
 
 def cv2_mask_non_plate(plate, threshold):
@@ -65,11 +67,21 @@ def cv2_fix_perspective(plate, contour):
     return plate
 
 
-class OcrDetector:
-    def __init__(self, *, debug=False):
-        self.debug = debug
+class OcrDetector(PausableNotifingThread):
+    def __init__(
+        self,
+        detected_plates: Queue,
+        allowed_plates: list[str],
+        *,
+        debug=False,
+    ):
+        super().__init__()
+        self._debug = debug
+        self._detected_plates = detected_plates
+        self.detected_ocrs = Queue(maxsize=1)
+        self.allowed_plates = allowed_plates
 
-    def postprocess(self, ocr: str) -> str:
+    def _postprocess(self, ocr: str) -> str:
         ocr = re.search("[A-Z]{1,2}\.? ?\.?[A-Z]{0,2} ?[0-9]{2,4}$", ocr)
         if ocr:
             return ocr.group(0).replace(" ", "").replace(".", "")
@@ -91,15 +103,17 @@ class OcrDetector:
             plate = cv2_fix_perspective(plate, plate_contour)
         return plate
 
-    def process(self, plate: cv2.typing.MatLike) -> None | cv2.typing.MatLike:
-        if self.debug:
+    def process(self):
+        plate = self._detected_plates.get()
+
+        if self._debug:
             cv2.imwrite(
                 pigarage_config.logdir
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_pre.jpg",
                 plate,
             )
         plate = self._improve_image(plate)
-        if self.debug:
+        if self._debug:
             cv2.imwrite(
                 pigarage_config.logdir
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_post.jpg",
@@ -110,4 +124,8 @@ class OcrDetector:
             config="--psm 13 -c tessedit_char_whitelist='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ .'",
         )
         logging.getLogger(__name__).info(f"OCR: {result}")
-        return self.postprocess(result)
+        ocr = self._postprocess(result)
+        if ocr is not None and ocr in self.allowed_plates:
+            self.detected_ocrs.put(ocr)
+            self._notify_waiters()
+            self.pause()
