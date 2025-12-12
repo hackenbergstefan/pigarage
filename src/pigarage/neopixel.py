@@ -1,17 +1,21 @@
+import functools
+import operator
 import threading
 import time
 
 try:
     import spidev
 except ImportError:
-    pass
+    from unittest.mock import MagicMock
+
+    spidev = MagicMock()
 
 
-def flatten(xss):
+def flatten(xss: list) -> list:
     return [x for xs in xss for x in xs]
 
 
-def rgb_to_bits(rgb: tuple[int, int, int]):
+def rgb_to_bits(rgb: tuple[int, int, int]) -> list[int]:
     r, g, b = rgb
     return flatten(
         (0xF8 if bit == "1" else 0xC0 for bit in f"{color:08b}") for color in (g, r, b)
@@ -19,19 +23,19 @@ def rgb_to_bits(rgb: tuple[int, int, int]):
 
 
 class StoppableTask(threading.Thread):
-    def __init__(self, func, *args, **kwargs):
+    def __init__(self, func: callable, *args: object, **kwargs: object) -> None:
         self._running = False
         self._func = func
         super().__init__(*args, **kwargs)
 
-    def start(self):
+    def start(self) -> None:
         self._running = True
         return super().start()
 
-    def stop(self):
+    def stop(self) -> None:
         self._running = False
 
-    def run(self):
+    def run(self) -> None:
         while True:
             if self._running is False:
                 return
@@ -41,7 +45,7 @@ class StoppableTask(threading.Thread):
 class NeopixelSpi:
     instance = None
 
-    def __init__(self, bus: int, device: int, leds: int, spi_freq=800):
+    def __init__(self, bus: int, device: int, leds: int, spi_freq: int = 800) -> None:
         NeopixelSpi.instance = self
         self.spi = spidev.SpiDev()
         self.spi.open(bus, device)
@@ -51,39 +55,59 @@ class NeopixelSpi:
         self._task = None
         self.clear()
 
-    def update(self, newstate: list[tuple[int, int, int]] = None):
+    def update(self, newstate: list[tuple[int, int, int]] | None = None) -> None:
         if newstate:
             self.state = newstate
-        raw_data = sum((rgb_to_bits(led) for led in self.state), [])
+        raw_data = functools.reduce(
+            operator.iadd, (rgb_to_bits(led) for led in self.state), []
+        )
         self.spi.xfer3(raw_data)
 
-    def clear(self):
+    def clear(self) -> None:
         self.stop()
         self.fill(0, 0, 0)
 
-    def fill(self, red: int, green: int, blue: int):
+    def fill(self, red: int, green: int, blue: int) -> None:
         self.stop()
         self.state = len(self.state) * [(red % 256, green % 256, blue % 256)]
         self.update()
 
-    def fade(self, color_from, color_to, duration=0.1, steps=20):
+    def fade(
+        self,
+        color_from: tuple[int, int, int],
+        color_to: tuple[int, int, int],
+        duration: float = 0.1,
+        steps: int = 20,
+    ) -> None:
         for i in range(steps + 1):
             self.fill(
                 *tuple(
                     round(c1 + (c2 - c1) / steps * i)
-                    for c1, c2 in zip(color_from, color_to)
+                    for c1, c2 in zip(color_from, color_to, strict=False)
                 )
             )
             time.sleep(duration / steps)
 
-    def pulse_once(self, color, amplitude=1.0, duration=0.5, steps="auto"):
+    def pulse_once(
+        self,
+        color: tuple[int, int, int],
+        amplitude: float = 1.0,
+        duration: float = 0.5,
+        steps: int | str = "auto",
+    ) -> None:
         if steps == "auto":
             steps = 20 * duration
         color_to = [(1 - amplitude) * c for c in color]
         self.fade(color, color_to, duration=duration / 2, steps=steps)
         self.fade(color_to, color, duration=duration / 2, steps=steps)
 
-    def pulse(self, color, amplitude=1.0, duration=0.5, steps="auto"):
+    def pulse(
+        self,
+        color: tuple[int, int, int],
+        amplitude: float = 1.0,
+        duration: float = 0.5,
+        steps: int | str = "auto",
+    ) -> None:
         self.stop()
         self._task = StoppableTask(
             func=lambda: self.pulse_once(
@@ -95,13 +119,13 @@ class NeopixelSpi:
         )
         self._task.start()
 
-    def stop(self):
+    def stop(self) -> None:
         if self._task is not None and threading.current_thread() is not self._task:
             self._task.stop()
             self._task.join()
             self._task = None
 
-    def roll_once(self, color: tuple[int, int, int], duration: int = 2.0):
+    def roll_once(self, color: tuple[int, int, int], duration: int = 2.0) -> None:
         self.stop()
         for i in range(len(self.state)):
             state = len(self.state) * [(0, 0, 0)]
@@ -109,7 +133,7 @@ class NeopixelSpi:
             self.update(state)
             time.sleep(duration / len(self.state))
 
-    def roll(self, color: tuple[int, int, int], duration: int = 2.0):
+    def roll(self, color: tuple[int, int, int], duration: int = 2.0) -> None:
         self.stop()
         self._task = StoppableTask(
             func=lambda: self.roll_once(
@@ -122,4 +146,3 @@ class NeopixelSpi:
 
 neo = NeopixelSpi(bus=0, device=0, leds=12)
 neo.clear()
-# neo.fill(235, 90, 7)

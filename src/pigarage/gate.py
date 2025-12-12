@@ -1,18 +1,23 @@
 import time
-from typing import Callable
+from collections.abc import Callable
 
-from RPi import GPIO
+try:
+    from RPi import GPIO
+except ImportError:
+    from unittest.mock import MagicMock
+
+    GPIO = MagicMock()
 
 
 class Gate:
     def __init__(
         self,
-        gpio_gate_closed,
-        gpio_gate_opened,
-        gpio_gate_button,
+        gpio_gate_closed: int,
+        gpio_gate_opened: int,
+        gpio_gate_button: int,
         on_opened: Callable[[int], None] | None = None,
         on_closed: Callable[[int], None] | None = None,
-    ):
+    ) -> None:
         self.gpio_gate_closed = gpio_gate_closed
         self.gpio_gate_opened = gpio_gate_opened
         self.gpio_gate_button = gpio_gate_button
@@ -44,19 +49,19 @@ class Gate:
             if self.is_closed():
                 on_closed(self.gpio_gate_closed)
 
-    def is_closed(self):
+    def is_closed(self) -> bool:
         return GPIO.input(self.gpio_gate_closed) == GPIO.HIGH
 
-    def is_opened(self):
+    def is_opened(self) -> bool:
         return GPIO.input(self.gpio_gate_opened) == GPIO.HIGH
 
-    def open(self):
+    def open(self) -> None:
         if not self.is_opened():
             GPIO.output(self.gpio_gate_button, GPIO.HIGH)
             time.sleep(0.3)
             GPIO.output(self.gpio_gate_button, GPIO.LOW)
 
-    def close(self):
+    def close(self) -> None:
         if not self.is_closed():
             GPIO.output(self.gpio_gate_button, GPIO.HIGH)
             time.sleep(0.3)

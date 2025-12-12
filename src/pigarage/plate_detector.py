@@ -1,21 +1,31 @@
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from queue import Queue
-from typing import Callable
 
 import cv2
 import ultralytics
 from huggingface_hub import hf_hub_download
-from picamera2 import Picamera2
 from ultralytics import YOLO
+
+try:
+    from picamera2 import Picamera2
+except ImportError:
+    from unittest.mock import MagicMock
+
+    Picamera2 = MagicMock()
 
 from .config import config as pigarage_config
 from .util import PausableNotifingThread
 
 
 def increment_path_exists_ok(
-    path: str | Path, exist_ok: bool = False, sep: str = "", mkdir: bool = False
+    path: str | Path,
+    *,
+    exist_ok: bool = False,  # noqa: ARG001
+    sep: str = "",  # noqa: ARG001
+    mkdir: bool = False,  # noqa: ARG001
 ) -> Path:
     return path
 
@@ -24,15 +34,17 @@ ultralytics.utils.files.increment_path = increment_path_exists_ok
 
 
 class PlateDetector(PausableNotifingThread):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         cam: Picamera2,
-        cam_setting="main",
+        cam_setting: str = "main",
         on_resume: Callable[[], None] = lambda: None,
         on_notifying: Callable[[], None] = lambda: None,
+        direction_min_distance: int = 50,
+        history_length: int = 4,
         *,
-        debug=False,
-    ):
+        debug: bool = False,
+    ) -> None:
         super().__init__(on_resume=on_resume, on_notifying=on_notifying)
         self.model = YOLO(
             hf_hub_download(
@@ -46,16 +58,17 @@ class PlateDetector(PausableNotifingThread):
         self.detected_plates = Queue(maxsize=0)
         self.detected_directions = Queue(maxsize=0)
         self._history = []
-        self._history_length = 4
+        self._history_length = history_length
+        self._direction_min_distance = direction_min_distance
 
-    def process(self):
+    def process(self) -> None:
         img = self._cam.capture_array(self._cam_setting)
         results = self.model.predict(
             source=img,
             verbose=False,
             save=self._debug,
             save_crop=self._debug,
-            project="/tmp",
+            project="/tmp",  # noqa: S108
             name="plate_detector",
             imgsz=512,
         )
@@ -71,7 +84,9 @@ class PlateDetector(PausableNotifingThread):
                     ),
                 )
 
-            logging.getLogger(__name__).debug("Plate found")
+            logging.getLogger(__name__).debug(
+                f"Plate found {(y1 + y2) / 2} {img.shape}"
+            )
             self._history.append((y1 + y2) / 2)
             plate = img[y1:y2, x1:x2]
             self.detected_plates.put(plate)
@@ -81,16 +96,16 @@ class PlateDetector(PausableNotifingThread):
             ys = sorted(range(self._history_length), key=lambda i: self._history[i])
             history_diff = abs(self._history[0] - self._history[-1])
             self._history.clear()
-            if history_diff < 50:
+            if history_diff < self._direction_min_distance:
                 return
 
             if ys == list(range(self._history_length)):
                 direction = "arriving"
                 logging.getLogger(__name__).debug(f"direction: {direction}")
-                self._notify_waiters()
                 self.detected_directions.put(direction)
+                self._notify_waiters()
             if ys == list(reversed(range(self._history_length))):
                 direction = "leaving"
                 logging.getLogger(__name__).debug(f"direction: {direction}")
-                self._notify_waiters()
                 self.detected_directions.put(direction)
+                self._notify_waiters()

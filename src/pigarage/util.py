@@ -1,6 +1,7 @@
 import logging
+from collections.abc import Callable
 from threading import Condition, Event, Thread
-from typing import Callable
+from typing import Never
 
 
 class PausableNotifingThread(Thread):
@@ -8,9 +9,9 @@ class PausableNotifingThread(Thread):
         self,
         on_resume: Callable[[], None] = lambda: None,
         on_notifying: Callable[[], None] = lambda: None,
-        *args,
-        **kwargs,
-    ):
+        *args: object,
+        **kwargs: object,
+    ) -> None:
         super().__init__(*args, **kwargs, daemon=True)
         self._paused_condition = Condition()
         self._paused = False
@@ -18,25 +19,25 @@ class PausableNotifingThread(Thread):
         self._on_resume = on_resume
         self._on_notifying = on_notifying
 
-    def start_paused(self):
+    def start_paused(self) -> None:
         self._paused = True
         self.start()
         with self._paused_condition:
             self._paused_condition.notify()
 
-    def pause(self):
+    def pause(self) -> None:
         logging.getLogger(__name__).debug(f"{self.__class__.__name__} pause")
         self._paused = True
         with self._paused_condition:
             self._paused_condition.notify()
 
-    def resume(self):
+    def resume(self) -> None:
         logging.getLogger(__name__).debug(f"{self.__class__.__name__} resume")
         self._paused = False
         with self._paused_condition:
             self._paused_condition.notify()
 
-    def run(self):
+    def run(self) -> None:
         while True:
             # Wait until running
             with self._paused_condition:
@@ -47,15 +48,15 @@ class PausableNotifingThread(Thread):
             # process
             self.process()
 
-    def wait(self, timeout=None):
+    def wait(self, timeout: float | None = None) -> None:
         logging.getLogger(__name__).debug(f"{self.__class__.__name__} wait")
         self._notification.wait(timeout=timeout)
 
-    def _notify_waiters(self):
+    def _notify_waiters(self) -> None:
         logging.getLogger(__name__).debug(f"{self.__class__.__name__} notify_waiters")
         self._notification.set()
         self._on_notifying()
         self._notification.clear()
 
-    def process(self):
+    def process(self) -> Never:
         raise NotImplementedError("Subclasses must implement the process method.")

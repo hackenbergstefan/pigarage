@@ -8,7 +8,7 @@ from .config import config
 Picamera2.set_logging(logging.ERROR)
 
 
-def main():
+def main() -> None:
     logging.basicConfig(
         filename=config.logdir / "pigarage.log",
         filemode="a",

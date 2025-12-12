@@ -1,13 +1,21 @@
 import contextlib
 import logging
 import time
+from collections.abc import Callable
 from queue import Empty
-from typing import Callable, Literal
+from typing import Literal
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTMessage
 from paho.mqtt.subscribeoptions import SubscribeOptions
-from picamera2 import Picamera2
+
+try:
+    from picamera2 import Picamera2
+except ImportError:
+    from unittest.mock import MagicMock
+
+    Picamera2 = MagicMock()
+
 
 from .diff_detector import DifferenceDetector
 from .gate import Gate
@@ -29,13 +37,13 @@ class LicensePlateProcessor:
         on_allowed: Callable[
             [str, Literal["arriving", "leaving"]], None
         ] = lambda _: None,
-    ):
+    ) -> None:
         self._diff_detector = diff_detector
         self._plate_detector = plate_detector
         self._ocr_detector = ocr_detector
         self._on_allowed = on_allowed
 
-    def run(self):
+    def run(self) -> None:
         self._plate_detector.start_paused()
         self._ocr_detector.start_paused()
         self._diff_detector.start_paused()
@@ -77,7 +85,7 @@ class PiGarage:
         mqtt_password: str,
         debug: bool,
         allowed_plates: list[str],
-    ):
+    ) -> None:
         # Setup MQTT client
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.username_pw_set(username=mqtt_username, password=mqtt_password)
@@ -139,11 +147,11 @@ class PiGarage:
             on_allowed=self.on_allowed,
         ).run()
 
-    def on_idle(self):
+    def on_idle(self) -> None:
         self.neopixel.clear()
         self.ir_light.turn_off()
 
-    def on_diff_detected(self):
+    def on_diff_detected(self) -> None:
         self.ir_light.turn_on()
 
     def on_allowed(
@@ -179,10 +187,10 @@ class PiGarage:
             # Pause entire processing for a while
             time.sleep(30)
 
-    def on_plate_detected(self):
+    def on_plate_detected(self) -> None:
         self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
-    def mqtt_receive(self, client, data, message: MQTTMessage):
+    def mqtt_receive(self, client, data, message: MQTTMessage) -> None:
         logging.getLogger(__name__).debug(
             f"mqtt_receive: {message.topic}, {message.payload}"
         )
