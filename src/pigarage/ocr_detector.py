@@ -188,6 +188,11 @@ class OcrDetector(PausableNotifingThread):
         self._ocr_regex = ocr_regex
         self.allowed_plates = allowed_plates
 
+    def resume(self) -> None:
+        while self.detected_ocrs.qsize() > 0:
+            self.detected_ocrs.get_nowait()
+        return super().resume()
+
     def _postprocess(self, ocr: str) -> str:
         ocr = re.search(self._ocr_regex, ocr)
         if ocr:

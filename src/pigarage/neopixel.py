@@ -53,6 +53,7 @@ class NeopixelSpi:
 
         self.state = leds * [(0, 0, 0)]
         self._task = None
+        self._task_lock = threading.RLock()
         self.clear()
 
     def update(self, newstate: list[tuple[int, int, int]] | None = None) -> None:
@@ -96,7 +97,7 @@ class NeopixelSpi:
         steps: int | str = "auto",
     ) -> None:
         if steps == "auto":
-            steps = 20 * duration
+            steps = int(20 * duration)
         color_to = [(1 - amplitude) * c for c in color]
         self.fade(color, color_to, duration=duration / 2, steps=steps)
         self.fade(color_to, color, duration=duration / 2, steps=steps)
@@ -109,18 +110,21 @@ class NeopixelSpi:
         steps: int | str = "auto",
     ) -> None:
         self.stop()
-        self._task = StoppableTask(
-            func=lambda: self.pulse_once(
-                color,
-                amplitude=amplitude,
-                duration=duration,
-                steps=steps,
+        with self._task_lock:
+            self._task = StoppableTask(
+                func=lambda: self.pulse_once(
+                    color,
+                    amplitude=amplitude,
+                    duration=duration,
+                    steps=steps,
+                )
             )
-        )
-        self._task.start()
+            self._task.start()
 
     def stop(self) -> None:
-        if self._task is not None and threading.current_thread() is not self._task:
+        if self._task is None or threading.current_thread() is self._task:
+            return
+        with self._task_lock:
             self._task.stop()
             self._task.join()
             self._task = None
@@ -135,14 +139,16 @@ class NeopixelSpi:
 
     def roll(self, color: tuple[int, int, int], duration: int = 2.0) -> None:
         self.stop()
-        self._task = StoppableTask(
-            func=lambda: self.roll_once(
-                color,
-                duration=duration,
+        with self._task_lock:
+            self._task = StoppableTask(
+                func=lambda: self.roll_once(
+                    color,
+                    duration=duration,
+                )
             )
-        )
-        self._task.start()
+            self._task.start()
 
 
-neo = NeopixelSpi(bus=0, device=0, leds=12)
-neo.clear()
+if __name__ == "__main__":
+    neo = NeopixelSpi(bus=0, device=0, leds=12)
+    neo.clear()

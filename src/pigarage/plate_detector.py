@@ -61,6 +61,14 @@ class PlateDetector(PausableNotifingThread):
         self._history_length = history_length
         self._direction_min_distance = direction_min_distance
 
+    def resume(self) -> None:
+        while self.detected_plates.qsize() > 0:
+            self.detected_plates.get_nowait()
+        while self.detected_directions.qsize() > 0:
+            self.detected_directions.get_nowait()
+        self._history.clear()
+        return super().resume()
+
     def process(self) -> None:
         img = self._cam.capture_array(self._cam_setting)
         results = self.model.predict(

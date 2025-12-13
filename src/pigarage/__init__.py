@@ -33,7 +33,8 @@ class LicensePlateProcessor:
         diff_detector: DifferenceDetector,
         plate_detector: PlateDetector,
         ocr_detector: OcrDetector,
-        on_allowed: Callable[
+        on_allowed: Callable[[str], None] = lambda _: None,
+        on_allowed_and_direction: Callable[
             [str, Literal["arriving", "leaving"]], None
         ] = lambda _: None,
     ) -> None:
@@ -41,6 +42,7 @@ class LicensePlateProcessor:
         self._plate_detector = plate_detector
         self._ocr_detector = ocr_detector
         self._on_allowed = on_allowed
+        self._on_allowed_and_direction = on_allowed_and_direction
 
     def run(self) -> None:
         self._plate_detector.start_paused()
@@ -60,12 +62,13 @@ class LicensePlateProcessor:
             with contextlib.suppress(Empty):
                 allowed_plate = self._ocr_detector.detected_ocrs.get(timeout=10.0)
                 self._ocr_detector.pause()
+                self._on_allowed(allowed_plate)
                 direction = self._plate_detector.detected_directions.get(timeout=10.0)
                 self._plate_detector.pause()
                 logging.getLogger(__name__).info(
                     f"Allowed Plate '{allowed_plate}' in direction '{direction}'"
                 )
-                self._on_allowed(allowed_plate, direction)
+                self._on_allowed_and_direction(allowed_plate, direction)
             self._plate_detector.pause()
             self._ocr_detector.pause()
 
@@ -124,6 +127,7 @@ class PiGarage:
         self.cam.start()
 
         # Setup license plate processor
+        self._allowed_detected = False
         plate_detector = PlateDetector(
             self.cam,
             cam_setting="main",
@@ -134,7 +138,7 @@ class PiGarage:
             diff_detector=DifferenceDetector(
                 self.cam,
                 cam_setting="lores",
-                threshold=50,
+                threshold=5,
                 on_resume=self.on_idle,
                 on_notifying=self.on_diff_detected,
             ),
@@ -145,16 +149,33 @@ class PiGarage:
                 allowed_plates=allowed_plates,
             ),
             on_allowed=self.on_allowed,
+            on_allowed_and_direction=self.on_allowed_and_direction,
         ).run()
 
     def on_idle(self) -> None:
+        logging.getLogger(__name__).debug("On idle")
+        self._allowed_detected = False
         self.neopixel.clear()
         self.ir_light.turn_off()
 
     def on_diff_detected(self) -> None:
+        logging.getLogger(__name__).debug("On diff detected")
         self.ir_light.turn_on()
 
     def on_allowed(
+        self,
+        _plate: str,
+    ) -> None:
+        logging.getLogger(__name__).debug("On allowed")
+        self._allowed_detected = True
+        self.neopixel.roll(color=(0, 255, 0))
+
+    def on_plate_detected(self) -> None:
+        if not self._allowed_detected:
+            logging.getLogger(__name__).debug("On plate detected")
+            self.neopixel.roll(color=(0, 0, 255), duration=1.0)
+
+    def on_allowed_and_direction(
         self,
         _plate: str,
         motion_direction: Literal["arriving", "leaving"],
@@ -166,14 +187,13 @@ class PiGarage:
                 f"opened: {self.gate.is_opened()} "
                 f"ir_barrier: {self.ir_barrier.is_blocked}"
             )
-            self.neopixel.roll(color=(255, 0, 0))
-            time.sleep(2)
             if (
                 motion_direction == "arriving"
                 and self.gate.is_closed()
                 and not self.ir_barrier.is_blocked
             ):
                 logging.getLogger(__name__).info("Opening gate...")
+                self.neopixel.pulse(color=(255, 0, 0), duration=2)
                 self.gate.open()
             if (
                 motion_direction == "leaving"
@@ -181,14 +201,14 @@ class PiGarage:
                 and not self.ir_barrier.is_blocked
             ):
                 logging.getLogger(__name__).info("Closing gate...")
+                self.neopixel.pulse(color=(255, 0, 0), duration=2)
                 self.gate.close()
 
+            time.sleep(5)
             self.neopixel.clear()
+
             # Pause entire processing for a while
             time.sleep(30)
-
-    def on_plate_detected(self) -> None:
-        self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
     def mqtt_receive(
         self,
