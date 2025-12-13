@@ -1,4 +1,3 @@
-import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -41,7 +40,6 @@ class PlateDetector(PausableNotifingThread):
         on_resume: Callable[[], None] = lambda: None,
         on_notifying: Callable[[], None] = lambda: None,
         direction_min_distance: int = 50,
-        history_length: int = 4,
         *,
         debug: bool = False,
     ) -> None:
@@ -57,8 +55,7 @@ class PlateDetector(PausableNotifingThread):
         self._debug = debug
         self.detected_plates = Queue(maxsize=0)
         self.detected_directions = Queue(maxsize=0)
-        self._history = []
-        self._history_length = history_length
+        self._previous = None
         self._direction_min_distance = direction_min_distance
 
     def resume(self) -> None:
@@ -66,7 +63,7 @@ class PlateDetector(PausableNotifingThread):
             self.detected_plates.get_nowait()
         while self.detected_directions.qsize() > 0:
             self.detected_directions.get_nowait()
-        self._history.clear()
+        self._previous = None
         return super().resume()
 
     def process(self) -> None:
@@ -80,7 +77,7 @@ class PlateDetector(PausableNotifingThread):
             name="plate_detector",
             imgsz=512,
         )
-        plate = None
+        center_y = None
         if results[0].boxes:
             x1, y1, x2, y2 = map(int, results[0].boxes[0].xyxy[0].tolist())
             if self._debug:
@@ -92,26 +89,19 @@ class PlateDetector(PausableNotifingThread):
                     ),
                 )
 
-            self._log.debug(f"Plate found {(y1 + y2) / 2} {img.shape}")
-            self._history.append((y1 + y2) / 2)
-            plate = img[y1:y2, x1:x2]
-            self.detected_plates.put(plate)
+            center_y = (y1 + y2) / 2
+            self._log.debug(f"Plate found {center_y} {img.shape}")
+            if self._previous is None:
+                self._previous = center_y
+            self.detected_plates.put(img[y1:y2, x1:x2])
             self._notify_waiters()
 
-        if len(self._history) == self._history_length:
-            ys = sorted(range(self._history_length), key=lambda i: self._history[i])
-            history_diff = abs(self._history[0] - self._history[-1])
-            self._history.clear()
-            if history_diff < self._direction_min_distance:
+        if center_y is not None:
+            diff = center_y - self._previous
+            if abs(diff) < self._direction_min_distance:
                 return
 
-            if ys == list(range(self._history_length)):
-                direction = "arriving"
-                self._log.debug(f"direction: {direction}")
-                self.detected_directions.put(direction)
-                self._notify_waiters()
-            if ys == list(reversed(range(self._history_length))):
-                direction = "leaving"
-                self._log.debug(f"direction: {direction}")
-                self.detected_directions.put(direction)
-                self._notify_waiters()
+            direction = "arriving" if diff > 0 else "leaving"
+            self._log.debug(f"direction: {direction}")
+            self.detected_directions.put(direction)
+            self._notify_waiters()
