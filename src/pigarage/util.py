@@ -18,6 +18,7 @@ class PausableNotifingThread(Thread):
         self._notification = Event()
         self._on_resume = on_resume
         self._on_notifying = on_notifying
+        self._log = logging.getLogger(self.__class__.__name__)
 
     def start_paused(self) -> None:
         self._paused = True
@@ -28,7 +29,7 @@ class PausableNotifingThread(Thread):
     def pause(self) -> None:
         if self._paused:
             return
-        logging.getLogger(__name__).debug(f"{self.__class__.__name__} pause")
+        self._log.debug("")
         self._paused = True
         with self._paused_condition:
             self._paused_condition.notify()
@@ -36,7 +37,7 @@ class PausableNotifingThread(Thread):
     def resume(self) -> None:
         if not self._paused:
             return
-        logging.getLogger(__name__).debug(f"{self.__class__.__name__} resume")
+        self._log.debug("")
         self._paused = False
         with self._paused_condition:
             self._paused_condition.notify()
@@ -53,13 +54,13 @@ class PausableNotifingThread(Thread):
             self.process()
 
     def wait(self, timeout: float | None = None) -> None:
-        logging.getLogger(__name__).debug(f"{self.__class__.__name__} wait")
+        self._log.debug("")
         self._notification.wait(timeout=timeout)
 
     def _notify_waiters(self) -> None:
         if self._paused:
             return
-        logging.getLogger(__name__).debug(f"{self.__class__.__name__} notify_waiters")
+        self._log.debug("")
         self._notification.set()
         self._on_notifying()
         self._notification.clear()

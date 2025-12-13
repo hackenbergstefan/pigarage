@@ -43,6 +43,7 @@ class LicensePlateProcessor:
         self._ocr_detector = ocr_detector
         self._on_allowed = on_allowed
         self._on_allowed_and_direction = on_allowed_and_direction
+        self._log = logging.getLogger(self.__class__.__name__)
 
     def run(self) -> None:
         self._plate_detector.start_paused()
@@ -60,12 +61,12 @@ class LicensePlateProcessor:
 
             # Wait for plate text and direction
             with contextlib.suppress(Empty):
-                allowed_plate = self._ocr_detector.detected_ocrs.get(timeout=10.0)
+                allowed_plate = self._ocr_detector.detected_ocrs.get(timeout=20.0)
                 self._ocr_detector.pause()
                 self._on_allowed(allowed_plate)
-                direction = self._plate_detector.detected_directions.get(timeout=10.0)
+                direction = self._plate_detector.detected_directions.get(timeout=30.0)
                 self._plate_detector.pause()
-                logging.getLogger(__name__).info(
+                self._log.info(
                     f"Allowed Plate '{allowed_plate}' in direction '{direction}'"
                 )
                 self._on_allowed_and_direction(allowed_plate, direction)
@@ -89,6 +90,8 @@ class PiGarage:
         *,
         debug: bool,
     ) -> None:
+        self._log = logging.getLogger(self.__class__.__name__)
+
         # Setup MQTT client
         self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.username_pw_set(username=mqtt_username, password=mqtt_password)
@@ -103,9 +106,9 @@ class PiGarage:
             gpio_gate_button=gpio_gate_button,
             gpio_gate_closed=gpio_gate_closed,
             gpio_gate_opened=gpio_gate_opened,
-            on_opened=lambda _: logging.getLogger(__name__).info("on_opened")
+            on_opened=lambda _: self._log.info("on_opened")
             or self.mqtt_client.publish("pigarage/gate", b"opened"),
-            on_closed=lambda _: logging.getLogger(__name__).info("on_closed")
+            on_closed=lambda _: self._log.info("on_closed")
             or self.mqtt_client.publish("pigarage/gate", b"closed"),
         )
         self.ir_barrier = IRBarrier(
@@ -153,26 +156,26 @@ class PiGarage:
         ).run()
 
     def on_idle(self) -> None:
-        logging.getLogger(__name__).debug("On idle")
+        self._log.debug("")
         self._allowed_detected = False
         self.neopixel.clear()
         self.ir_light.turn_off()
 
     def on_diff_detected(self) -> None:
-        logging.getLogger(__name__).debug("On diff detected")
+        self._log.debug("")
         self.ir_light.turn_on()
 
     def on_allowed(
         self,
         _plate: str,
     ) -> None:
-        logging.getLogger(__name__).debug("On allowed")
+        self._log.debug("")
         self._allowed_detected = True
         self.neopixel.roll(color=(0, 255, 0))
 
     def on_plate_detected(self) -> None:
         if not self._allowed_detected:
-            logging.getLogger(__name__).debug("On plate detected")
+            self._log.debug("")
             self.neopixel.roll(color=(0, 0, 255), duration=1.0)
 
     def on_allowed_and_direction(
@@ -181,7 +184,7 @@ class PiGarage:
         motion_direction: Literal["arriving", "leaving"],
     ) -> None:
         with self.ir_barrier:
-            logging.getLogger(__name__).info(
+            self._log.info(
                 f"Checking gate {motion_direction} "
                 f"closed: {self.gate.is_closed()} "
                 f"opened: {self.gate.is_opened()} "
@@ -192,7 +195,7 @@ class PiGarage:
                 and self.gate.is_closed()
                 and not self.ir_barrier.is_blocked
             ):
-                logging.getLogger(__name__).info("Opening gate...")
+                self._log.info("Opening gate...")
                 self.neopixel.pulse(color=(255, 0, 0), duration=2)
                 self.gate.open()
             if (
@@ -200,7 +203,7 @@ class PiGarage:
                 and self.gate.is_opened()
                 and not self.ir_barrier.is_blocked
             ):
-                logging.getLogger(__name__).info("Closing gate...")
+                self._log.info("Closing gate...")
                 self.neopixel.pulse(color=(255, 0, 0), duration=2)
                 self.gate.close()
 
@@ -216,9 +219,7 @@ class PiGarage:
         _data: any,
         message: mqtt.MQTTMessage,
     ) -> None:
-        logging.getLogger(__name__).debug(
-            f"mqtt_receive: {message.topic}, {message.payload}"
-        )
+        self._log.debug(f"mqtt_receive: {message.topic}, {message.payload}")
         match message.topic:
             case "pigarage/gate":
                 if message.payload == b"open":

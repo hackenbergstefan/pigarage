@@ -92,9 +92,7 @@ class PlateDetector(PausableNotifingThread):
                     ),
                 )
 
-            logging.getLogger(__name__).debug(
-                f"Plate found {(y1 + y2) / 2} {img.shape}"
-            )
+            self._log.debug(f"Plate found {(y1 + y2) / 2} {img.shape}")
             self._history.append((y1 + y2) / 2)
             plate = img[y1:y2, x1:x2]
             self.detected_plates.put(plate)
@@ -109,11 +107,11 @@ class PlateDetector(PausableNotifingThread):
 
             if ys == list(range(self._history_length)):
                 direction = "arriving"
-                logging.getLogger(__name__).debug(f"direction: {direction}")
+                self._log.debug(f"direction: {direction}")
                 self.detected_directions.put(direction)
                 self._notify_waiters()
             if ys == list(reversed(range(self._history_length))):
                 direction = "leaving"
-                logging.getLogger(__name__).debug(f"direction: {direction}")
+                self._log.debug(f"direction: {direction}")
                 self.detected_directions.put(direction)
                 self._notify_waiters()

@@ -45,6 +45,6 @@ class DifferenceDetector(PausableNotifingThread):
         mse = np.square(np.subtract(self._previous, img)).mean()
         self._previous = img
         if mse > self.threshold:
-            logging.getLogger(__name__).debug(f"motion detected. mse: {mse}")
+            self._log.debug(f"motion detected. mse: {mse}")
             self._notify_waiters()
             self.pause()

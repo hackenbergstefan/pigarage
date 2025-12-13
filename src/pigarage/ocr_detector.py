@@ -218,7 +218,7 @@ class OcrDetector(PausableNotifingThread):
             )
         result = plate2text(plate)
         ocr = self._postprocess(result)
-        logging.getLogger(__name__).info(f"OCR: '{result.strip()}' -> '{ocr}'")
+        self._log.info(f"OCR: '{result.strip()}' -> '{ocr}'")
         if ocr is not None and ocr in self.allowed_plates:
             self.detected_ocrs.put(ocr)
             self._notify_waiters()

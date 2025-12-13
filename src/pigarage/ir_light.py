@@ -14,11 +14,12 @@ class IRLight:
 
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(self.gpio_ir_light, GPIO.OUT, initial=GPIO.LOW)
+        self._log = logging.getLogger(self.__class__.__name__)
 
     def turn_on(self) -> None:
-        logging.getLogger(__name__).debug("IRLight turn_on")
+        self._log.debug("")
         GPIO.output(self.gpio_ir_light, GPIO.HIGH)
 
     def turn_off(self) -> None:
-        logging.getLogger(__name__).debug("IRLight turn_off")
+        self._log.debug("")
         GPIO.output(self.gpio_ir_light, GPIO.LOW)
