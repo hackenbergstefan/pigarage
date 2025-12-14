@@ -1,3 +1,4 @@
+import argparse
 import logging
 import time
 from collections.abc import Callable
@@ -107,3 +108,44 @@ class PlateDetector(PausableNotifingThread):
             self._log.debug(f"direction: {direction}")
             self.detected_directions.put(direction)
             self._notify_waiters()
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.DEBUG)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=Path, help="Path to the image file")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Path to save the output image. "
+        "If not provided, the image will be shown using cv2.imshow.",
+    )
+    args = parser.parse_args()
+
+    img = cv2.imread(str(args.input))
+    detector = PlateDetector(cam=None)  # type: ignore[arg-type]
+    results = detector.model.predict(
+        source=img,
+        verbose=False,
+        save=False,
+        save_crop=False,
+        imgsz=512,
+    )
+    if results[0].boxes:
+        x1, y1, x2, y2 = map(int, results[0].boxes[0].xyxy[0].tolist())
+        logging.getLogger(__name__).info(
+            "Plate detected at (%d, %d, %d, %d)", x1, y1, x2, y2
+        )
+        out = img[y1:y2, x1:x2]
+        if args.output:
+            cv2.imwrite(str(args.output), out)
+        else:
+            cv2.imshow("output", out)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+    else:
+        logging.getLogger(__name__).info("No plate detected")
+
+
+if __name__ == "__main__":
+    main()

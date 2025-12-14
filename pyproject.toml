@@ -18,6 +18,8 @@ raspi = ["picamera2>=0.3.33", "spidev>=3.8"]
 
 [project.scripts]
 pigarage = "pigarage.__main__:main"
+pigarage-ocr-detector = "pigarage.ocr_detector:main"
+pigarage-plate-detector = "pigarage.plate_detector:main"
 
 [tool.uv]
 package = true

@@ -1,6 +1,8 @@
+import argparse
 import logging
 import re
 import time
+from pathlib import Path
 from queue import Queue
 
 import cv2
@@ -10,6 +12,10 @@ import pytesseract
 from .config import VISUAL_DEBUG
 from .config import config as pigarage_config
 from .util import PausableNotifingThread
+
+TRACE = 5
+"""Custom logging level for trace messages."""
+logging.addLevelName(TRACE, "TRACE")
 
 
 def put_text(plate: cv2.typing.MatLike, text: list[str]) -> cv2.typing.MatLike:
@@ -38,6 +44,18 @@ def cv2_mask_non_plate(  # noqa: PLR0913
     min_symbol_height: float = 0.3,
     min_symbols: int = 4,
 ) -> tuple[float, cv2.typing.MatLike, np.ndarray] | None:
+    logging.getLogger(__name__).log(
+        TRACE,
+        "Masking with parameters: "
+        "threshold=%d, min_contours=%d, "
+        "min_plate_area=%.2e, min_symbol_height=%.2e, "
+        "min_symbols=%d",
+        threshold,
+        min_contours,
+        min_plate_area,
+        min_symbol_height,
+        min_symbols,
+    )
     # Find contours in the plate image using threshold
     plate_bw = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY)
     plate_bw = cv2.GaussianBlur(plate_bw, ksize=(5, 5), sigmaX=3.0)
@@ -48,15 +66,22 @@ def cv2_mask_non_plate(  # noqa: PLR0913
 
     # Check if there are enough contours (characters of the plate)
     if len(contours) < min_contours:
+        logging.getLogger(__name__).log(TRACE, "Not enough contours found")
         return None
 
     # Calculate areas of contours and sort them descending
     areas = np.array([cv2.contourArea(c) for c in contours])
     if np.all(areas == 0):
+        logging.getLogger(__name__).log(TRACE, "All contours have zero area")
         return None
     idxs = np.argsort(areas)[::-1]
     # Check that plate area is large enough
     if areas[idxs[0]] / (plate.shape[0] * plate.shape[1]) < min_plate_area:
+        logging.getLogger(__name__).log(
+            TRACE,
+            "Plate area too small: %.2e",
+            areas[idxs[0]] / (plate.shape[0] * plate.shape[1]),
+        )
         return None
 
     # Check if the second largest contour is on second level
@@ -66,6 +91,10 @@ def cv2_mask_non_plate(  # noqa: PLR0913
     # so it is on second level if hierarchy[parent_second_max].Parent == -1
     parent_second_max = hierarchy[0, idxs[1], 3]
     if hierarchy[0, parent_second_max, 3] != -1:
+        logging.getLogger(__name__).log(
+            TRACE,
+            "Second largest contour is not on second level",
+        )
         return None
 
     # Check amount if symbol heights that are large enough
@@ -80,6 +109,11 @@ def cv2_mask_non_plate(  # noqa: PLR0913
         ]
     )
     if len(symbols_with_min_height) < min_symbols:
+        logging.getLogger(__name__).log(
+            TRACE,
+            "Not enough symbols with minimum height found: %d",
+            len(symbols_with_min_height),
+        )
         return None
 
     # Create a mask to remove non-character contours
@@ -93,6 +127,11 @@ def cv2_mask_non_plate(  # noqa: PLR0913
     )
     # Return the standard deviation of character areas,
     # the mask, and the largest contour
+    logging.getLogger(__name__).log(
+        TRACE,
+        "Masking successful: stddev=%.3e",
+        np.std(symbols_with_min_height),
+    )
     return np.std(symbols_with_min_height), mask, contours[idxs[0]]
 
 
@@ -226,3 +265,65 @@ class OcrDetector(PausableNotifingThread):
             self.detected_ocrs.put(ocr)
             self._notify_waiters()
             self.pause()
+
+
+def main() -> None:
+    logging.basicConfig(level=TRACE)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input", type=Path, help="Path to the image file")
+    parser.add_argument(
+        "action",
+        choices=("mask", "improve", "perspective", "ocr"),
+        help="Action to perform",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="Path to save the output image. "
+        "If not provided, the image will be shown using cv2.imshow.",
+    )
+    parser.add_argument(
+        "--visual-debug",
+        action="store_true",
+        help="Enable visual debug mode with additional output.",
+    )
+    parser.add_argument(
+        "--threshold",
+        default=120,
+        type=int,
+        help="Threshold value for masking (only for 'mask' action).",
+    )
+    args = parser.parse_args()
+
+    global VISUAL_DEBUG  # noqa: PLW0603
+    VISUAL_DEBUG = args.visual_debug
+    img = cv2.imread(str(args.input))
+
+    match args.action:
+        case "mask":
+            std, out, _ = cv2_mask_non_plate(img, args.threshold)
+            print("Stddev of symbol heights:", std)  # noqa: T201
+        case "improve":
+            out, contour, threshold, stddev = cv2_improve_plate_img(img)
+            logging.getLogger(__name__).info(
+                f"Improved plate image with threshold {threshold} "
+                f"and stddev of symbol heights {stddev:.3e}",
+            )
+        case "perspective":
+            out, contour, _, _ = cv2_improve_plate_img(img)
+            out = cv2_fix_perspective(img, contour)
+        case "ocr":
+            result = plate2text(img)
+            logging.getLogger(__name__).info(f"OCR result: '{result}'")
+            return
+
+    if args.output:
+        cv2.imwrite(str(args.output), out)
+    else:
+        cv2.imshow("output", out)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()
