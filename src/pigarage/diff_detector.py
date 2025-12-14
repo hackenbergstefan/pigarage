@@ -37,7 +37,7 @@ class DifferenceDetector(PausableNotifingThread):
         Capture new image and compare with previous.
         If differing sufficiently, notify and pause.
         """  # noqa: D205
-        img = self.cam.capture_array(self.cam_setting)
+        img = self.cam.capture_buffer(self.cam_setting)
 
         if self._previous is None:
             self._previous = img

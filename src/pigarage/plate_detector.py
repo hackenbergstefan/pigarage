@@ -1,3 +1,4 @@
+import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -30,6 +31,7 @@ def increment_path_exists_ok(
 
 
 ultralytics.utils.files.increment_path = increment_path_exists_ok
+ultralytics.utils.LOGGER.setLevel(logging.WARNING)
 
 
 class PlateDetector(PausableNotifingThread):

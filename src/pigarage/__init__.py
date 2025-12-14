@@ -141,7 +141,7 @@ class PiGarage:
             diff_detector=DifferenceDetector(
                 self.cam,
                 cam_setting="lores",
-                threshold=5,
+                threshold=30,
                 on_resume=self.on_idle,
                 on_notifying=self.on_diff_detected,
             ),

@@ -208,7 +208,10 @@ class OcrDetector(PausableNotifingThread):
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_pre.jpg",
                 plate,
             )
-        plate, plate_contour, _, _ = cv2_improve_plate_img(plate)
+        result = cv2_improve_plate_img(plate)
+        if result is None:
+            return
+        plate, plate_contour, _, _ = result
         plate = cv2_fix_perspective(plate, plate_contour)
         if self._debug:
             cv2.imwrite(
