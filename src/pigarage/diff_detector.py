@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+import cv2
 import numpy as np
 
 try:
@@ -12,12 +13,19 @@ except ImportError:
 from .util import PausableNotifingThread
 
 
+def mse(img1: cv2.typing.MatLike, img2: cv2.typing.MatLike) -> float:
+    """Compute Mean Squared Error between two images."""
+    return np.sum((img1.astype(np.float32) - img2.astype(np.float32)) ** 2) / (
+        img1.shape[0] * img1.shape[1]
+    )
+
+
 class DifferenceDetector(PausableNotifingThread):
     def __init__(
         self,
         cam: Picamera2,
         cam_setting: str = "lores",
-        threshold: float = 10.0,
+        threshold: float = 1000.0,
         on_resume: Callable[[], None] = lambda: None,
         on_notifying: Callable[[], None] = lambda: None,
     ) -> None:
@@ -41,9 +49,9 @@ class DifferenceDetector(PausableNotifingThread):
         if self._previous is None:
             self._previous = img
             return
-        mse = np.sum((self._previous.astype(np.float32) - img.astype(np.float32)) ** 2)
+        mse_value = mse(self._previous, img)
         self._previous = img
-        if mse > self.threshold:
-            self._log.debug(f"motion detected. mse: {mse}")
+        if mse_value > self.threshold:
+            self._log.debug(f"motion detected. mse: {mse_value}")
             self._notify_waiters()
             self.pause()
