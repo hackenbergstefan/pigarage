@@ -13,7 +13,7 @@ VISUAL_DEBUG = False
 
 @pytest.fixture(scope="session")
 def reader():
-    return easyocr.Reader(["en"], gpu=False)
+    return easyocr.Reader(["en"], verbose=False)
 
 
 @pytest.mark.parametrize(

@@ -82,7 +82,7 @@ def cv2_improve_plate_img(
 
 
 def plate2text(plate: cv2.typing.MatLike, reader: easyocr.Reader | None = None) -> str:
-    reader = reader or easyocr.Reader(["en"])
+    reader = reader or easyocr.Reader(["en"], verbose=False)
     result = reader.readtext(
         plate,
         allowlist="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.o",
@@ -120,7 +120,7 @@ class OcrDetector(PausableNotifingThread):
         self._detected_plates = detected_plates
         self.detected_ocrs = Queue(maxsize=1)
         self._ocr_regex = ocr_regex
-        self._reader = easyocr.Reader(["en"], gpu=False)
+        self._reader = easyocr.Reader(["en"], gpu=False, verbose=False)
         self.allowed_plates = allowed_plates
 
     def resume(self) -> None:

@@ -10,6 +10,8 @@ jobs:
       - uses: astral-sh/ruff-action@v3
 
   pytest:
+    strategy:
+      fail-fast: false
     runs-on: ubuntu-latest
     steps:
       - run: sudo apt install -y tesseract-ocr
