@@ -150,12 +150,16 @@ class PlateDetector(PausableNotifingThread):
                     cv2.imwrite(
                         pigarage_config.logdir
                         / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_plate_{i}.jpg",
-                        cv2.rectangle(
-                            img,
-                            (box.x1, box.y1),
-                            (box.x2, box.y2),
-                            color=(255, 0, 0),
-                            thickness=3,
+                        cv2.resize(
+                            cv2.rectangle(
+                                img,
+                                (box.x1, box.y1),
+                                (box.x2, box.y2),
+                                color=(255, 0, 0),
+                                thickness=3,
+                            ),
+                            fx=0.3,
+                            fy=0.3,
                         ),
                     )
                 self.detected_plates.put(img[box.y1 : box.y2, box.x1 : box.x2])
