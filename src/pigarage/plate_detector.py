@@ -158,8 +158,7 @@ class PlateDetector(PausableNotifingThread):
                                 color=(255, 0, 0),
                                 thickness=3,
                             ),
-                            fx=0.3,
-                            fy=0.3,
+                            dsize=(int(0.2 * img.shape[1]), int(0.2 * img.shape[0])),
                         ),
                     )
                 self.detected_plates.put(img[box.y1 : box.y2, box.x1 : box.x2])

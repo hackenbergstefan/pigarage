@@ -144,6 +144,8 @@ class OcrDetector(PausableNotifingThread):
                 plate,
             )
         plate = cv2_improve_plate_img(plate)
+        if plate is None:
+            return
         if self._debug:
             cv2.imwrite(
                 pigarage_config.logdir
@@ -154,9 +156,9 @@ class OcrDetector(PausableNotifingThread):
         ocr = self._postprocess(result)
         self._log.info(f"OCR: '{result.strip()}' -> '{ocr}'")
         if ocr is not None and ocr in self.allowed_plates:
+            self.pause()
             self.detected_ocrs.put(ocr)
             self._notify_waiters()
-            self.pause()
 
 
 def main() -> None:
