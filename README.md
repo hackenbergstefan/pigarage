@@ -70,7 +70,7 @@ sequenceDiagram
     activate OD
     Note over OD: wait()<br> for plate
     OD->>PD: get plate
-    Note over OD: Consume plate crop<br/>OCR with Pytesseract
+    Note over OD: Consume plate crop<br/>OCR with EasyOCR
 
     Note over LP: wait<br> for allowed plate
     OD-->>LP: notify(allowed_plate)
@@ -94,7 +94,7 @@ sequenceDiagram
 
 ### OcrDetector Preprocessing Steps
 
-In order to improve OCR accuracy, the following preprocessing steps are applied to the plate crops before passing them to Pytesseract:
+In order to improve OCR accuracy, the following preprocessing steps are applied to the plate crops before passing them to EasyOCR:
 
 1. Mask non-plate areas to focus on text and reduce to black and white
    (See [./src/pi_garage/ocr_detector.py::cv2_mask_non_plate](./src/pi_garage/ocr_detector.py))
@@ -110,15 +110,12 @@ In order to improve OCR accuracy, the following preprocessing steps are applied 
 2. Detected license plate region (`pigarage-plate-detector ./docs/plate-original.jpg --output ./docs/plate-crop.jpg`):
    ![Detected Plate](docs/plate-crop.jpg)
 
-3. Masked non-plate areas (`pigarage-ocr-detector ./docs/plate-crop.jpg mask --output ./docs/plate-masked.jpg`):
+3. Masked non-plate areas (`pigarage-ocr-detector improve ./docs/plate-crop.jpg --output ./docs/plate-masked.jpg`):
    ![Masked Plate](docs/plate-masked.jpg)
 
-4. Fix perspective distortion (`pigarage-ocr-detector ./docs/plate-masked.jpg perspective --output ./docs/plate-fixed-perspective.jpg`):
-   ![Fixed Perspective](docs/plate-fixed-perspective.jpg)
-
-5. Pytesseract Result:
+4. EasyOCR Result (`pigarage-ocr-detector ocr ./docs/plate-crop.jpg`):
    ```
-   KSC124
+   K SC 124
    ```
 
 ## Raspberry Pi Shield

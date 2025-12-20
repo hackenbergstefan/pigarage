@@ -6,8 +6,8 @@ from pathlib import Path
 from queue import Queue
 
 import cv2
+import easyocr
 import numpy as np
-import pytesseract
 
 from .config import VISUAL_DEBUG
 from .config import config as pigarage_config
@@ -18,57 +18,27 @@ TRACE = 5
 logging.addLevelName(TRACE, "TRACE")
 
 
-def put_text(plate: cv2.typing.MatLike, text: list[str]) -> cv2.typing.MatLike:
-    extend = cv2.bitwise_not(
-        np.zeros((plate.shape[0], 200, plate.shape[2])).astype(plate.dtype)
-    )
-    plate = np.hstack([extend, plate])
-    for i, line in enumerate(text):
-        plate = cv2.putText(
-            plate,
-            line,
-            org=(0, 10 + i * 15),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=0.5,
-            color=(255, 0, 0),
-            thickness=1,
-        )
-    return plate
-
-
-def cv2_mask_non_plate(  # noqa: PLR0913
+def cv2_improve_plate_img(
     plate: cv2.typing.MatLike,
-    threshold: int,
-    min_contours: int = 4,
+    blur: int = 5,
+    block_size: int = 99,
+    c: float = 2,
     min_plate_area: float = 0.5,
-    min_symbol_height: float = 0.3,
-    min_symbols: int = 4,
-) -> tuple[float, cv2.typing.MatLike, np.ndarray] | None:
-    logging.getLogger(__name__).log(
-        TRACE,
-        "Masking with parameters: "
-        "threshold=%d, min_contours=%d, "
-        "min_plate_area=%.2e, min_symbol_height=%.2e, "
-        "min_symbols=%d",
-        threshold,
-        min_contours,
-        min_plate_area,
-        min_symbol_height,
-        min_symbols,
+) -> cv2.typing.MatLike | None:
+    plate = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.adaptiveThreshold(
+        src=cv2.medianBlur(plate, blur),
+        maxValue=255,
+        adaptiveMethod=cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        thresholdType=cv2.THRESH_BINARY,
+        blockSize=block_size,
+        C=c,
     )
-    # Find contours in the plate image using threshold
-    plate_bw = cv2.cvtColor(plate, cv2.COLOR_BGR2GRAY)
-    plate_bw = cv2.GaussianBlur(plate_bw, ksize=(5, 5), sigmaX=3.0)
-    _, plate_bw = cv2.threshold(plate_bw, threshold, 255, cv2.THRESH_BINARY)
+
+    # Calculate contours
     contours, hierarchy = cv2.findContours(
-        plate_bw, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+        thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
     )
-
-    # Check if there are enough contours (characters of the plate)
-    if len(contours) < min_contours:
-        logging.getLogger(__name__).log(TRACE, "Not enough contours found")
-        return None
-
     # Calculate areas of contours and sort them descending
     areas = np.array([cv2.contourArea(c) for c in contours])
     if np.all(areas == 0):
@@ -97,118 +67,43 @@ def cv2_mask_non_plate(  # noqa: PLR0913
         )
         return None
 
-    # Check amount if symbol heights that are large enough
-    area_height = cv2.boundingRect(contours[idxs[0]])[3]
-    symbols_with_min_height = np.array(
-        [
-            h
-            for i in range(len(contours))
-            if (h := cv2.boundingRect(contours[i])[3] / area_height)
-            and hierarchy[0, i, 3] == parent_second_max
-            and h > min_symbol_height
-        ]
-    )
-    if len(symbols_with_min_height) < min_symbols:
-        logging.getLogger(__name__).log(
-            TRACE,
-            "Not enough symbols with minimum height found: %d",
-            len(symbols_with_min_height),
-        )
-        return None
-
-    # Create a mask to remove non-character contours
-    mask = cv2.bitwise_not(np.zeros(plate.shape).astype(plate.dtype))
-    mask = cv2.drawContours(
-        mask,
+    masked = cv2.drawContours(
+        cv2.bitwise_not(np.zeros(thresh.shape).astype(thresh.dtype)),
         [contours[i] for i in idxs[1:]],
         -1,
         color=(0, 0, 0),
         thickness=cv2.FILLED,
     )
-    # Return the standard deviation of character areas,
-    # the mask, and the largest contour
-    logging.getLogger(__name__).log(
-        TRACE,
-        "Masking successful: stddev=%.3e",
-        np.std(symbols_with_min_height),
-    )
-    return np.std(symbols_with_min_height), mask, contours[idxs[0]]
-
-
-def cv2_fix_perspective(
-    plate: cv2.typing.MatLike,
-    contour: np.ndarray,
-) -> cv2.typing.MatLike:
-    # Get rotated bounding rect of contour
-    rect = cv2.minAreaRect(contour)
-    (_rect_x, _rect_y), (rect_width, rect_height), _rect_angle = rect
-    box = np.int32(cv2.boxPoints(rect))
-    # Calculate transformation matrix
-    aspect = rect_height / rect_width
-    if aspect > 1.0:
-        aspect = rect_width / rect_height
-    _img_h, img_w = plate.shape[:2]
-    new_w, new_h = (img_w, int(aspect * img_w))
-    if rect_width > rect_height:
-        dst = np.float32(
-            [
-                [0.0, new_h],
-                [0, 0],
-                [new_w, 0.0],
-                [new_w, new_h],
-            ]
-        )
-    else:
-        dst = np.float32(
-            [
-                [0, 0],
-                [new_w, 0.0],
-                [new_w, new_h],
-                [0.0, new_h],
-            ]
-        )
-    mat = cv2.getPerspectiveTransform(np.float32(box), dst)
-    return cv2.warpPerspective(
-        plate,
-        mat,
-        dsize=(new_w, new_h),
-    )
-
-
-def cv2_improve_plate_img(
-    plate: cv2.typing.MatLike,
-) -> None | tuple[cv2.typing.MatLike, cv2.typing.MatLike, int, float]:
-    preprocessed = [
-        (*p, threshold)
-        for threshold in range(0, 255, 5)
-        if (p := cv2_mask_non_plate(plate, threshold)) is not None
-    ]
-    if len(preprocessed) == 0:
-        return None
-
     if VISUAL_DEBUG:
-        stacked = []
-        for std, p, c, threshold in preprocessed:
-            p = cv2.drawContours(p, [c], -1, (0, 255, 0), 2)  # noqa: PLW2901
-            p = put_text(p, [f"{threshold}", f"{std:.3e}"])  # noqa: PLW2901
-            stacked.append(p)
-        cv2.imshow("foo", np.vstack(stacked))
+        cv2.imshow("masked", masked)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
-
-    std, plate, plate_contour, threshold = sorted(
-        preprocessed,
-        key=lambda p: p[0],
-    )[0]
-    return plate, plate_contour, threshold, std
+    return masked
 
 
-def plate2text(plate: cv2.typing.MatLike) -> str:
-    return pytesseract.image_to_string(
+def plate2text(plate: cv2.typing.MatLike, reader: easyocr.Reader | None = None) -> str:
+    reader = reader or easyocr.Reader(["en"])
+    result = reader.readtext(
         plate,
-        config="-l eng --oem 3 --psm 13 "
-        "-c tessedit_char_whitelist='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ .'",
-    ).strip()
+        allowlist="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.o",
+        text_threshold=0.5,
+        slope_ths=0.01,
+        add_margin=0,
+    )
+    filtered = " ".join(
+        text
+        for _, text in sorted(
+            (
+                (box, text)
+                for box, text, _confidence in result
+                # Drop all results with low height
+                if abs(box[-1][1] - box[0][1]) > 0.5 * plate.shape[0]
+            ),
+            key=lambda x: x[0][0][0],  # Sort by x coordinate
+        )
+    ).replace("o", " ")
+    logging.getLogger(__name__).debug(f"OCR result: {result} => {filtered}")
+    return filtered
 
 
 class OcrDetector(PausableNotifingThread):
@@ -225,6 +120,7 @@ class OcrDetector(PausableNotifingThread):
         self._detected_plates = detected_plates
         self.detected_ocrs = Queue(maxsize=1)
         self._ocr_regex = ocr_regex
+        self._reader = easyocr.Reader(["en"], gpu=False)
         self.allowed_plates = allowed_plates
 
     def resume(self) -> None:
@@ -235,7 +131,7 @@ class OcrDetector(PausableNotifingThread):
     def _postprocess(self, ocr: str) -> str:
         ocr = re.search(self._ocr_regex, ocr)
         if ocr:
-            return ocr.group(0).replace(" ", "").replace(".", "")
+            return ocr.group(0)
         return None
 
     def process(self) -> None:
@@ -247,18 +143,14 @@ class OcrDetector(PausableNotifingThread):
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_pre.jpg",
                 plate,
             )
-        result = cv2_improve_plate_img(plate)
-        if result is None:
-            return
-        plate, plate_contour, _, _ = result
-        plate = cv2_fix_perspective(plate, plate_contour)
+        plate = cv2_improve_plate_img(plate)
         if self._debug:
             cv2.imwrite(
                 pigarage_config.logdir
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_post.jpg",
                 plate,
             )
-        result = plate2text(plate)
+        result = plate2text(plate, reader=self._reader)
         ocr = self._postprocess(result)
         self._log.info(f"OCR: '{result.strip()}' -> '{ocr}'")
         if ocr is not None and ocr in self.allowed_plates:
@@ -270,12 +162,12 @@ class OcrDetector(PausableNotifingThread):
 def main() -> None:
     logging.basicConfig(level=TRACE)
     parser = argparse.ArgumentParser()
-    parser.add_argument("input", type=Path, help="Path to the image file")
     parser.add_argument(
         "action",
-        choices=("mask", "improve", "perspective", "ocr"),
+        choices=("improve", "ocr"),
         help="Action to perform",
     )
+    parser.add_argument("input", type=Path, help="Path to the image file")
     parser.add_argument(
         "--output",
         type=Path,
@@ -287,12 +179,6 @@ def main() -> None:
         action="store_true",
         help="Enable visual debug mode with additional output.",
     )
-    parser.add_argument(
-        "--threshold",
-        default=120,
-        type=int,
-        help="Threshold value for masking (only for 'mask' action).",
-    )
     args = parser.parse_args()
 
     global VISUAL_DEBUG  # noqa: PLW0603
@@ -300,18 +186,8 @@ def main() -> None:
     img = cv2.imread(str(args.input))
 
     match args.action:
-        case "mask":
-            std, out, _ = cv2_mask_non_plate(img, args.threshold)
-            print("Stddev of symbol heights:", std)  # noqa: T201
         case "improve":
-            out, contour, threshold, stddev = cv2_improve_plate_img(img)
-            logging.getLogger(__name__).info(
-                f"Improved plate image with threshold {threshold} "
-                f"and stddev of symbol heights {stddev:.3e}",
-            )
-        case "perspective":
-            out, contour, _, _ = cv2_improve_plate_img(img)
-            out = cv2_fix_perspective(img, contour)
+            out = cv2_improve_plate_img(img)
         case "ocr":
             result = plate2text(img)
             logging.getLogger(__name__).info(f"OCR result: '{result}'")
