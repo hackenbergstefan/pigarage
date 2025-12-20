@@ -92,7 +92,7 @@ class PlateDetector(PausableNotifingThread):
         on_notifying: Callable[[], None] = lambda: None,
         direction_min_distance: int = 50,
         direction_ignore_distance: int = 5,
-        different_plate_distance: int = 50,
+        different_plate_distance: int = 100,
         *,
         debug: bool = False,
     ) -> None:
@@ -133,19 +133,9 @@ class PlateDetector(PausableNotifingThread):
         )
         boxes: list[Box] = []
         # Detect plates
-        for i, box in enumerate(results[0].boxes):
+        for box in results[0].boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            if self._debug:
-                cv2.imwrite(
-                    pigarage_config.logdir
-                    / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_plate_{i}.jpg",
-                    cv2.rectangle(
-                        img, (x1, y1), (x2, y2), color=(255, 0, 0), thickness=3
-                    ),
-                )
-
             box = Box(x1, y1, x2, y2)  # noqa: PLW2901
-            self._log.debug(f"Plate found ({box.center_x}, {box.center_y})")
             boxes.append(box)
         return boxes
 
@@ -161,12 +151,26 @@ class PlateDetector(PausableNotifingThread):
 
     def _detect_direction(self, img: cv2.typing.MatLike, boxes: list[Box]) -> None:
         """Detect direction of plates based on y position changes."""
-        for box in boxes:
+        for i, box in enumerate(boxes):
             prev = self._history.get(box)
             if prev is None:
                 continue
             if abs(box.center_y - prev.center_y) < self._direction_ignore_distance:
                 continue
+            self._log.debug(f"Plate updated ({box.center_x}, {box.center_y})")
+            if self._debug:
+                cv2.imwrite(
+                    pigarage_config.logdir
+                    / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_plate_{i}.jpg",
+                    cv2.rectangle(
+                        img,
+                        (box.x1, box.y1),
+                        (box.x2, box.y2),
+                        color=(255, 0, 0),
+                        thickness=3,
+                    ),
+                )
+
             self.detected_plates.put(img[box.y1 : box.y2, box.x1 : box.x2])
             self._notify_waiters()
 

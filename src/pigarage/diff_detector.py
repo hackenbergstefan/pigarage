@@ -15,8 +15,9 @@ from .util import PausableNotifingThread
 
 def mse(img1: cv2.typing.MatLike, img2: cv2.typing.MatLike) -> float:
     """Compute Mean Squared Error between two images."""
-    return np.sum((img1.astype(np.float32) - img2.astype(np.float32)) ** 2) / (
-        img1.shape[0] * img1.shape[1]
+    return float(
+        np.sum((img1.astype(np.float32) - img2.astype(np.float32)) ** 2)
+        / np.prod(img1.shape[:2])
     )
 
 
