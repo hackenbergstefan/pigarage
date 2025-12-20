@@ -15,6 +15,7 @@ def download_image(url: str):
 
 
 def download_lnpr_image(id: str) -> cv2.typing.MatLike:
+    # https://universe.roboflow.com/roboflow-universe-projects/license-plate-recognition-rxg4e
     return download_image(
         f"https://source.roboflow.com/zD7y6XOoQnh7WC160Ae7/{id}/original.jpg"
     )
