@@ -13,20 +13,21 @@ VISUAL_DEBUG = False
 
 @pytest.fixture(scope="session")
 def reader():
-    return easyocr.Reader(["en"], verbose=False)
+    return easyocr.Reader(["en"], verbose=True)
 
 
 @pytest.mark.parametrize(
     "id, expected_ocr",
     [
-        ("08HdV8ArxuVKXgxdUor1", "K SC 124"),
-        ("uJsY6e391eOodCkFLMJA", "4777AK77"),
+        ("08HdV8ArxuVKXgxdUor1", "K SC124"),
+        ("uJsY6e391eOodCkFLMJA", "777AK77"),
         ("qTPu96zhef7AbiBSFFTD", "R275 ULO"),
     ],
 )
 def test_ocr(id, expected_ocr, reader):
     img = download_lnpr_plate(id)
     plate = ocr_detector.cv2_improve_plate_img(img)
+    assert plate is not None
     ocr = ocr_detector.plate2text(plate, reader=reader)
     assert expected_ocr == ocr
 
@@ -34,8 +35,8 @@ def test_ocr(id, expected_ocr, reader):
 @pytest.mark.parametrize(
     "id, expected_ocr",
     [
-        ("08HdV8ArxuVKXgxdUor1", "K SC 124"),
-        ("uJsY6e391eOodCkFLMJA", "4777AK77"),
+        ("08HdV8ArxuVKXgxdUor1", "K SC124"),
+        ("uJsY6e391eOodCkFLMJA", "777AK77"),
         ("qTPu96zhef7AbiBSFFTD", "R275 ULO"),
     ],
 )

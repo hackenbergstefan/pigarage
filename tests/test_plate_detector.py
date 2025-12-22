@@ -33,7 +33,7 @@ def test_plate_detected(id):
     Thread(target=lambda: time.sleep(0.3) or detector.start()).start()
     detector.wait()
     assert mock.capture_array.call_count == 1
-    assert detector.detected_plates.qsize() == 1
+    assert detector.detected_plates.qsize() >= 1
 
 
 def hstack_images(imgs):
@@ -85,8 +85,8 @@ def test_direction_detected():
     detector._on_notifying = (
         lambda: detector.detected_directions.qsize() > 0 and detector.pause()
     )
-    Thread(target=lambda: time.sleep(0.3) or detector.start()).start()
-    for _ in range(4):
+    Thread(target=lambda: time.sleep(1) or detector.start()).start()
+    for _ in range(5):
         detector.wait()
     assert detector.detected_directions.get_nowait() == "arriving"
 

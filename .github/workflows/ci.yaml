@@ -13,9 +13,12 @@ jobs:
     strategy:
       fail-fast: false
     runs-on: ubuntu-latest
+    env:
+      CUDA_VISIBLE_DEVICES: ""
     steps:
-      - run: sudo apt install -y tesseract-ocr
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --dev
-      - run: uv run pytest -sv tests
+      - run: uv run pytest -sxv --log-cli-level 5 tests/test_util.py tests/test_diff_detector.py
+      - run: uv run pytest -sxv --log-cli-level 5 tests/test_plate_detector.py
+      - run: uv run pytest -sxv --log-cli-level 5 tests/test_ocr_detector.py

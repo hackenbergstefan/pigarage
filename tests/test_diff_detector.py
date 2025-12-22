@@ -24,7 +24,8 @@ def test_diff_detected():
     ]
     detector = DifferenceDetector(cam=mock, threshold=0.1, on_notifying=notification)
     Thread(target=lambda: time.sleep(0.3) or detector.start()).start()
-    detector.wait()
+    with detector._paused_condition:
+        detector._paused_condition.wait()
     assert mock.capture_buffer.call_count == 2
     assert detector._paused is True
     assert notification.call_count == 1

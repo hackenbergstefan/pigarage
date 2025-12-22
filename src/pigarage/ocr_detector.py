@@ -36,9 +36,7 @@ def cv2_improve_plate_img(
     )
 
     # Calculate contours
-    contours, hierarchy = cv2.findContours(
-        thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-    )
+    contours, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     # Calculate areas of contours and sort them descending
     areas = np.array([cv2.contourArea(c) for c in contours])
     if np.all(areas == 0):
@@ -51,19 +49,6 @@ def cv2_improve_plate_img(
             TRACE,
             "Plate area too small: %.2e",
             areas[idxs[0]] / (plate.shape[0] * plate.shape[1]),
-        )
-        return None
-
-    # Check if the second largest contour is on second level
-    # Each entry of hierarchy represents: [Next, Previous, First_Child, Parent]
-    # where the entries are indices and Parent == -1 is no parent, i.e. top level
-    # Let parent_second_max Parent of second largest contour,
-    # so it is on second level if hierarchy[parent_second_max].Parent == -1
-    parent_second_max = hierarchy[0, idxs[1], 3]
-    if hierarchy[0, parent_second_max, 3] != -1:
-        logging.getLogger(__name__).log(
-            TRACE,
-            "Second largest contour is not on second level",
         )
         return None
 
@@ -169,9 +154,9 @@ class OcrDetector(PausableNotifingThread):
         ocr = self._postprocess(result)
         self._log.info(f"OCR: '{result.strip()}' -> '{ocr}'")
         if ocr is not None and ocr in self.allowed_plates:
-            self.pause()
             self.detected_ocrs.put(ocr)
             self._notify_waiters()
+            self.pause()
 
 
 def main() -> None:
