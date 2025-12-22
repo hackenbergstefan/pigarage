@@ -94,12 +94,8 @@ sequenceDiagram
 
 ### OcrDetector Preprocessing Steps
 
-In order to improve OCR accuracy, the following preprocessing steps are applied to the plate crops before passing them to EasyOCR:
-
-1. Mask non-plate areas to focus on text and reduce to black and white
-   (See [./src/pi_garage/ocr_detector.py::cv2_mask_non_plate](./src/pi_garage/ocr_detector.py))
-2. Fix perspective distortion
-   (See [./src/pi_garage/ocr_detector.py::cv2_fix_perspective](./src/pi_garage/ocr_detector.py))
+In order to improve OCR accuracy, non-plate areas are masked to focus on text and reduce to black and white.
+(See [./src/pi_garage/ocr_detector.py::cv2_mask_non_plate](./src/pi_garage/ocr_detector.py))
 
 
 ## Example of image processing pipeline
@@ -113,7 +109,7 @@ In order to improve OCR accuracy, the following preprocessing steps are applied 
 3. Masked non-plate areas (`pigarage-ocr-detector improve ./docs/plate-crop.jpg --output ./docs/plate-masked.jpg`):
    ![Masked Plate](docs/plate-masked.jpg)
 
-4. EasyOCR Result (`pigarage-ocr-detector ocr ./docs/plate-crop.jpg`):
+4. EasyOCR Result (`pigarage-ocr-detector ocr ./docs/plate-masked.jpg`):
    ```
    K SC 124
    ```

@@ -21,7 +21,7 @@ logging.addLevelName(TRACE, "TRACE")
 def cv2_improve_plate_img(
     plate: cv2.typing.MatLike,
     blur: int = 5,
-    block_size: int = 99,
+    block_size: int = 151,
     c: float = 2,
     min_plate_area: float = 0.5,
 ) -> cv2.typing.MatLike | None:
@@ -74,6 +74,15 @@ def cv2_improve_plate_img(
         color=(0, 0, 0),
         thickness=cv2.FILLED,
     )
+    # Remove everything outside the largest contour (the plate)
+    plate_background = cv2.drawContours(
+        np.zeros(thresh.shape).astype(thresh.dtype),
+        [contours[idxs[0]]],
+        -1,
+        color=(255, 255, 255),
+        thickness=cv2.FILLED,
+    )
+    masked = cv2.bitwise_or(masked, cv2.bitwise_not(plate_background))
     if VISUAL_DEBUG:
         cv2.imshow("masked", masked)
         cv2.waitKey(0)
@@ -90,18 +99,22 @@ def plate2text(plate: cv2.typing.MatLike, reader: easyocr.Reader | None = None) 
         slope_ths=0.01,
         add_margin=0,
     )
-    filtered = " ".join(
-        text
-        for _, text in sorted(
-            (
-                (box, text)
-                for box, text, _confidence in result
-                # Drop all results with low height
-                if abs(box[-1][1] - box[0][1]) > 0.5 * plate.shape[0]
-            ),
-            key=lambda x: x[0][0][0],  # Sort by x coordinate
+    filtered = (
+        " ".join(
+            text
+            for _, text in sorted(
+                (
+                    (box, text)
+                    for box, text, _confidence in result
+                    # Drop all results with low height
+                    if abs(box[-1][1] - box[0][1]) > 0.3 * plate.shape[0]
+                ),
+                key=lambda x: x[0][0][0],  # Sort by x coordinate
+            )
         )
-    ).replace("o", " ")
+        .replace("o", " ")
+        .replace(".", " ")
+    )
     logging.getLogger(__name__).debug(f"OCR result: {result} => {filtered}")
     return filtered
 
