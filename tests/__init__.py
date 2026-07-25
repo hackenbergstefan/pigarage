@@ -1,6 +1,7 @@
 from urllib.request import urlopen
 
 import cv2
+import cv2.typing
 import numpy as np
 
 

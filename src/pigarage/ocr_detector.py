@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import re
 import time
 from collections.abc import Callable
@@ -8,10 +9,12 @@ from http.client import HTTPException
 from pathlib import Path
 from queue import Queue
 
+os.environ["PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT"] = "0"
+
 import cv2
-import easyocr
 import numpy as np
 import requests
+from paddleocr import PaddleOCR
 
 from .config import VISUAL_DEBUG
 from .config import config as pigarage_config
@@ -20,6 +23,17 @@ from .util import PausableNotifingThread
 TRACE = 5
 """Custom logging level for trace messages."""
 logging.addLevelName(TRACE, "TRACE")
+
+
+def create_ocr() -> PaddleOCR:
+    return PaddleOCR(
+        lang="en",
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=False,
+        device="cpu",
+        text_rec_score_thresh=0.3,
+    )
 
 
 def cv2_contours_append_children(
@@ -50,6 +64,11 @@ def cv2_improve_plate_img(  # noqa: PLR0913
         clipLimit=clahe_clip,
         tileGridSize=(clahe_tile, clahe_tile),
     ).apply(plate)
+    plate = cv2.resize(plate, None, fx=3, fy=3, interpolation=cv2.INTER_LANCZOS4)
+
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    plate = cv2.filter2D(plate, -1, kernel)
+
     thresh = cv2.adaptiveThreshold(
         src=cv2.medianBlur(plate, blur),
         maxValue=255,
@@ -114,33 +133,13 @@ def cv2_improve_plate_img(  # noqa: PLR0913
     return masked
 
 
-def plate2text(plate: cv2.typing.MatLike, reader: easyocr.Reader | None = None) -> str:
-    reader = reader or easyocr.Reader(["en"], verbose=False)
-    result = reader.readtext(
-        plate,
-        allowlist="0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ.o",
-        text_threshold=0.5,
-        slope_ths=0.01,
-        add_margin=0,
+def plate2text(plate: cv2.typing.MatLike, ocr: PaddleOCR | None = None) -> str:
+    ocr = ocr or create_ocr()
+    result = ocr.predict(plate)[0]
+    logging.getLogger(__name__).debug(
+        f"OCR result: {result['rec_texts']} with {result['rec_scores']}"
     )
-    filtered = re.sub(
-        r"[o. ]+",
-        " ",
-        " ".join(
-            text
-            for _, text in sorted(
-                (
-                    (box, text)
-                    for box, text, _confidence in result
-                    # Drop all results with low height
-                    if abs(box[-1][1] - box[0][1]) > 0.3 * plate.shape[0]
-                ),
-                key=lambda x: x[0][0][0],  # Sort by x coordinate
-            )
-        ),
-    )
-    logging.getLogger(__name__).debug(f"OCR result: {result} => {filtered}")
-    return filtered
+    return result["rec_texts"][0]
 
 
 class OcrDetector(PausableNotifingThread):
@@ -159,7 +158,7 @@ class OcrDetector(PausableNotifingThread):
         self._detected_plates = detected_plates
         self.detected_ocrs = Queue(maxsize=1)
         self._ocr_regex = ocr_regex
-        self._reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        self._ocr = create_ocr()
         self.allowed_plates = allowed_plates
         self._on_ocr_detected = on_ocr_detected
         self._remote_session = requests.Session()
@@ -201,7 +200,7 @@ class OcrDetector(PausableNotifingThread):
                 / f"{time.strftime('%Y-%m-%d_%H-%M-%S')}_ocr_post.jpg",
                 plate,
             )
-        return plate2text(plate, reader=self._reader)
+        return plate2text(plate, ocr=self._ocr)
 
     def process(self) -> None:
         plate = self._detected_plates.get()

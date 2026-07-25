@@ -2,7 +2,6 @@ import time
 from queue import Queue
 from threading import Thread
 
-import easyocr
 import pytest
 from pigarage import ocr_detector
 
@@ -13,7 +12,7 @@ VISUAL_DEBUG = False
 
 @pytest.fixture(scope="session")
 def reader():
-    return easyocr.Reader(["en"], verbose=True)
+    return ocr_detector.create_ocr()
 
 
 @pytest.mark.parametrize(
@@ -28,7 +27,7 @@ def test_ocr(id, expected_ocr, reader):
     img = download_lnpr_plate(id)
     plate = ocr_detector.cv2_improve_plate_img(img, min_char_height_ratio=0)
     assert plate is not None
-    ocr = ocr_detector.plate2text(plate, reader=reader)
+    ocr = ocr_detector.plate2text(plate, ocr=reader)
     assert expected_ocr == ocr
 
 

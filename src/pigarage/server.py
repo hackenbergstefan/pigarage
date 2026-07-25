@@ -2,17 +2,16 @@ import logging
 import time
 
 import cv2
-import easyocr
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
 from .config import config as pigarage_config
-from .ocr_detector import cv2_improve_plate_img, plate2text
+from .ocr_detector import create_ocr, cv2_improve_plate_img, plate2text
 
 app = FastAPI()
 
-reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+paddle = create_ocr()
 
 
 def check_auth(request: Request) -> None:
@@ -32,7 +31,7 @@ async def ocr(request: Request) -> dict[str, str]:
 
     result = cv2_improve_plate_img(img)
     if result is not None:
-        result = plate2text(result, reader=reader)
+        result = plate2text(result, ocr=paddle)
     logging.getLogger("uvicorn").info(
         f"OCR processed in {time.time() - t:.2f} seconds: {result}"
     )
