@@ -8,9 +8,7 @@ from queue import Queue
 from typing import Literal
 
 import cv2
-import ultralytics
-from huggingface_hub import hf_hub_download
-from ultralytics import YOLO
+from fast_alpr import ALPR
 
 try:
     from picamera2 import Picamera2
@@ -31,10 +29,6 @@ def increment_path_exists_ok(
     mkdir: bool = False,  # noqa: ARG001
 ) -> Path:
     return path
-
-
-ultralytics.utils.files.increment_path = increment_path_exists_ok
-ultralytics.utils.LOGGER.setLevel(logging.WARNING)
 
 
 @dataclass
@@ -87,10 +81,12 @@ class PlateHistory:
 class PlateDetector(PausableNotifingThread):
     def __init__(  # noqa: PLR0913
         self,
+        allowed_plates: list[str],
         cam: Picamera2,
         cam_setting: str = "main",
         on_resume: Callable[[], None] = lambda: None,
         on_notifying: Callable[[], None] = lambda: None,
+        on_ocr_detected: Callable[[str], None] = lambda _: None,
         on_direction: Callable[[Literal["arriving", "leaving"]], None] = lambda _: None,
         direction_min_distance: int = 50,
         direction_ignore_distance: int = 5,
@@ -99,16 +95,17 @@ class PlateDetector(PausableNotifingThread):
         debug: bool = False,
     ) -> None:
         super().__init__(on_resume=on_resume, on_notifying=on_notifying)
-        self.model = YOLO(
-            hf_hub_download(
-                "morsetechlab/yolov11-license-plate-detection",
-                "license-plate-finetune-v1n.pt",
-            )
+        self.model = ALPR(
+            detector_model="yolo-v9-t-384-license-plate-end2end",
+            ocr_model="cct-xs-v2-global-model",
         )
+        self.allowed_plates = allowed_plates
         self._cam = cam
         self._cam_setting = cam_setting
+        self._on_ocr_detected = on_ocr_detected
         self._on_direction = on_direction
         self._debug = debug
+        self.detected_ocrs = Queue(maxsize=1)
         self.detected_plates = Queue(maxsize=10)
         self.detected_directions = Queue(maxsize=1)
         self._direction_min_distance = direction_min_distance
@@ -119,27 +116,27 @@ class PlateDetector(PausableNotifingThread):
     def resume(self) -> None:
         while self.detected_plates.qsize() > 0:
             self.detected_plates.get_nowait()
+        while self.detected_ocrs.qsize() > 0:
+            self.detected_ocrs.get_nowait()
         while self.detected_directions.qsize() > 0:
             self.detected_directions.get_nowait()
         self._history.clear()
         return super().resume()
 
     def _detect_plate_boxes(self, img: cv2.typing.MatLike) -> list[Box]:
-        results = self.model.predict(
-            source=img,
-            verbose=False,
-            save=self._debug,
-            save_crop=self._debug,
-            project="/tmp",  # noqa: S108
-            name="plate_detector",
-            imgsz=512,
-        )
+        results = self.model.predict(img)
+        if results:
+            self._log.debug(f"Prediction results: {results}")
         boxes: list[Box] = []
         # Detect plates
-        for box in results[0].boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            box = Box(x1, y1, x2, y2)  # noqa: PLW2901
-            boxes.append(box)
+        for result in results:
+            ocr = result.ocr.text
+            self._on_ocr_detected(ocr)
+            if ocr in self.allowed_plates:
+                self.detected_ocrs.put(ocr)
+                self._notify_waiters()
+            box = result.detection.bounding_box
+            boxes.append(Box(box.x1, box.y1, box.x2, box.y2))
         return boxes
 
     def _update_history(self, img: cv2.typing.MatLike, boxes: list[Box]) -> None:

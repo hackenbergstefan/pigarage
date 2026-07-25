@@ -21,7 +21,6 @@ from .gate import Gate
 from .ir_barrier import IRBarrier
 from .ir_light import IRLight
 from .neopixel import NeopixelSpi
-from .ocr_detector import OcrDetector
 from .plate_detector import PlateDetector
 
 Picamera2.set_logging(logging.ERROR)
@@ -32,7 +31,6 @@ class LicensePlateProcessor:
         self,
         diff_detector: DifferenceDetector,
         plate_detector: PlateDetector,
-        ocr_detector: OcrDetector,
         on_allowed: Callable[[str], None] = lambda _: None,
         on_allowed_and_direction: Callable[
             [str, Literal["arriving", "leaving"]], None
@@ -40,14 +38,12 @@ class LicensePlateProcessor:
     ) -> None:
         self._diff_detector = diff_detector
         self._plate_detector = plate_detector
-        self._ocr_detector = ocr_detector
         self._on_allowed = on_allowed
         self._on_allowed_and_direction = on_allowed_and_direction
         self._log = logging.getLogger(self.__class__.__name__)
 
     def run(self) -> None:
         self._plate_detector.start_paused()
-        self._ocr_detector.start_paused()
         self._diff_detector.start_paused()
 
         while True:
@@ -57,12 +53,10 @@ class LicensePlateProcessor:
 
             # Start detecting plate and text
             self._plate_detector.resume()
-            self._ocr_detector.resume()
 
             # Wait for plate text and direction
             with contextlib.suppress(Empty):
-                allowed_plate = self._ocr_detector.detected_ocrs.get(timeout=20.0)
-                self._ocr_detector.pause()
+                allowed_plate = self._plate_detector.detected_ocrs.get(timeout=20.0)
                 self._on_allowed(allowed_plate)
                 direction = self._plate_detector.detected_directions.get(timeout=30.0)
                 self._plate_detector.pause()
@@ -71,7 +65,6 @@ class LicensePlateProcessor:
                 )
                 self._on_allowed_and_direction(allowed_plate, direction)
             self._plate_detector.pause()
-            self._ocr_detector.pause()
 
 
 class PiGarage:
@@ -138,12 +131,14 @@ class PiGarage:
         # Setup license plate processor
         self._state = set()
         plate_detector = PlateDetector(
-            self.cam,
+            allowed_plates=allowed_plates,
+            cam=self.cam,
             cam_setting="main",
             debug=debug,
             direction_min_distance=25,
             on_notifying=self.on_plate_detected,
             on_direction=self.on_direction,
+            on_ocr_detected=self.on_ocr,
         )
         self.license_plate_processor = LicensePlateProcessor(
             diff_detector=DifferenceDetector(
@@ -154,12 +149,6 @@ class PiGarage:
                 on_notifying=self.on_diff_detected,
             ),
             plate_detector=plate_detector,
-            ocr_detector=OcrDetector(
-                debug=debug,
-                detected_plates=plate_detector.detected_plates,
-                allowed_plates=allowed_plates,
-                on_ocr_detected=self.on_ocr,
-            ),
             on_allowed=self.on_allowed,
             on_allowed_and_direction=self.on_allowed_and_direction,
         ).run()
